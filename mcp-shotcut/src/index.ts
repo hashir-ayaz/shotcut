@@ -3,6 +3,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { ShotcutClient } from "./shotcutClient.js";
+import { registerCaptionTools } from "./tools/captions.js";
+import { registerKeyframeTools } from "./tools/keyframes.js";
+import { registerTransitionTools } from "./tools/transitions.js";
 
 const client = new ShotcutClient();
 
@@ -19,7 +22,7 @@ function formatResult(result: Awaited<ReturnType<ShotcutClient["request"]>>) {
 
 const server = new McpServer({
   name: "shotcut",
-  version: "0.1.0",
+  version: "0.2.0",
 });
 
 server.registerTool(
@@ -90,6 +93,10 @@ server.registerTool(
     return formatResult(await client.request("add_clip", params));
   },
 );
+
+registerTransitionTools(server, client);
+registerKeyframeTools(server, client);
+registerCaptionTools(server, client);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

@@ -61,6 +61,7 @@ class ScreenCapture;
 class HdrPreviewWindow;
 class EditorService;
 class ControlServer;
+class TransitionsDock;
 
 class MainWindow : public QMainWindow
 {
@@ -93,6 +94,7 @@ public:
     bool keyframesDockIsVisible() const;
     Player *player() const { return m_player; }
     EditorService *editorService() const { return m_editorService.get(); }
+    SubtitlesDock *subtitlesDock() const { return m_subtitlesDock; }
 
     void keyPressEvent(QKeyEvent *);
     void keyReleaseEvent(QKeyEvent *);
@@ -230,6 +232,7 @@ private:
     MarkersDock *m_markersDock;
     NotesDock *m_notesDock;
     SubtitlesDock *m_subtitlesDock;
+    TransitionsDock *m_transitionsDock{nullptr};
     std::unique_ptr<QWidget> m_producerWidget;
     FilesDock *m_filesDock;
     ElementsDock *m_elementsDock;

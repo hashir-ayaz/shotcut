@@ -350,17 +350,17 @@ EditorResult removeTransition(int trackIndex, int transitionClipIndex);
 - CapCut-style: pick dissolve / wipe preset + duration, apply to selection or clip join.
 - Buttons/menus call `EditorService::applyTransition` — no duplicate MLT logic in QML.
 
-- [ ] **Step 1:** Inventory existing wipe/dissolve MLT services available via current Homebrew MLT; map to preset IDs.
+- [x] **Step 1:** Inventory existing wipe/dissolve MLT services available via current Homebrew MLT; map to preset IDs.
 
-- [ ] **Step 2:** Implement `listTransitionPresets` / `applyTransition` / duration / remove using existing model commands.
+- [x] **Step 2:** Implement `listTransitionPresets` / `applyTransition` / duration / remove using existing model commands.
 
-- [ ] **Step 3:** Wire thin UI → service.
+- [x] **Step 3:** Wire thin UI → service.
 
-- [ ] **Step 4:** RPC + MCP tools.
+- [x] **Step 4:** RPC + MCP tools.
 
-- [ ] **Step 5:** Verify: UI apply → `get_state` shows transition; MCP apply → UI shows transition; export contains transition.
+- [x] **Step 5:** Verify: UI apply → `get_state` shows transition; MCP apply → UI shows transition; export contains transition.
 
-- [ ] **Step 6:** Cursor agent trajectory → `docs/agent-trajectories/01-transitions.md` + recording under `docs/recordings/`.
+- [x] **Step 6:** Cursor agent trajectory → `docs/agent-trajectories/01-transitions.md` + recording under `docs/recordings/`.
 
 ---
 
@@ -399,17 +399,17 @@ EditorResult setPropertyValue(int trackIndex, int clipIndex, const QString &prop
 - Ensure CapCut-like diamond/keyframe affordance for the four properties (reuse Keyframes panel where possible).
 - All mutations go through `EditorService` (dock methods become wrappers).
 
-- [ ] **Step 1:** Map CapCut properties → Shotcut filters/params (`affine` / size-position, opacity, rotate).
+- [x] **Step 1:** Map CapCut properties → Shotcut filters/params (`affine` / size-position, opacity, rotate).
 
-- [ ] **Step 2:** Implement service methods on top of `QmlFilter` / `KeyframesModel` / filter commands.
+- [x] **Step 2:** Implement service methods on top of `QmlFilter` / `KeyframesModel` / filter commands.
 
-- [ ] **Step 3:** Thin UI wrappers.
+- [x] **Step 3:** Thin UI wrappers.
 
-- [ ] **Step 4:** RPC + MCP.
+- [x] **Step 4:** RPC + MCP.
 
-- [ ] **Step 5:** Verify keyframes animate in preview and survive save/reload/export.
+- [x] **Step 5:** Verify keyframes animate in preview and survive save/reload/export.
 
-- [ ] **Step 6:** Trajectory + recording: `docs/agent-trajectories/02-keyframes.md`.
+- [x] **Step 6:** Trajectory + recording: `docs/agent-trajectories/02-keyframes.md`.
 
 ---
 
@@ -445,17 +445,17 @@ EditorResult applyTextTemplate(const QString &templateId, const QString &text, i
 - “Auto captions” action → `EditorService::transcribeCaptions` (Whisper job under the hood).
 - Show progress via existing Jobs dock.
 
-- [ ] **Step 1:** Confirm Whisper/Kokorodoki prerequisites on this machine; document in MCP README / writeup.
+- [x] **Step 1:** Confirm Whisper/Kokorodoki prerequisites on this machine; document in MCP README / writeup.
 
-- [ ] **Step 2:** Wrap existing transcribe flow in `EditorService` (async job id returned in `data`).
+- [x] **Step 2:** Wrap existing transcribe flow in `EditorService` (async job id returned in `data`).
 
-- [ ] **Step 3:** Add `getCaptions` / edit / import.
+- [x] **Step 3:** Add `getCaptions` / edit / import.
 
-- [ ] **Step 4:** RPC + MCP; include `shotcut_get_job_status` if async wait is needed for agents.
+- [x] **Step 4:** RPC + MCP; include `shotcut_get_job_status` if async wait is needed for agents.
 
-- [ ] **Step 5:** Verify captions appear on timeline/subtitle track and export/burn-in path as supported by Shotcut today.
+- [x] **Step 5:** Verify captions appear on timeline/subtitle track and export/burn-in path as supported by Shotcut today.
 
-- [ ] **Step 6:** Trajectory + recording: `docs/agent-trajectories/03-captions.md`.
+- [x] **Step 6:** Trajectory + recording: `docs/agent-trajectories/03-captions.md`.
 
 ---
 
@@ -484,9 +484,9 @@ For each P0 feature, run the same script structure:
 4. Save full tool-call transcript to `docs/agent-trajectories/0N-*.md`.
 5. Capture screen recording; trim to essential steps only → `docs/recordings/0N-*.mp4` (or `.mov`).
 
-- [ ] Transitions evidence
-- [ ] Keyframes evidence
-- [ ] Captions evidence
+- [x] Transitions evidence
+- [x] Keyframes evidence
+- [x] Captions evidence
 
 ### Task 3.2: HTML writeup
 
@@ -503,7 +503,7 @@ Must open in a browser with no build step. Include:
 
 ### Task 3.3: Repo hygiene for submission
 
-- [ ] `mcp-shotcut/README.md` complete
+- [x] `mcp-shotcut/README.md` complete
 - [ ] Root or docs note pointing to plan + writeup + trajectories
 - [ ] `.gitignore` for `node_modules`, build artifacts; **do** commit `mcp-shotcut` sources and docs evidence
 - [ ] Confirm clean rebuild from instructions on a fresh shell
@@ -577,9 +577,9 @@ Logs: `~/Library/Application Support/Meltytech/Shotcut/shotcut-log.txt`
 - [ ] **Phase 1.1** — `EditorService` skeleton
 - [ ] **Phase 1.2** — `ControlServer` JSON-RPC
 - [ ] **Phase 1.3** — TypeScript MCP + Cursor ping/state
-- [ ] **Phase 2.1** — Transitions (API → UI → MCP → evidence)
-- [ ] **Phase 2.2** — Keyframes (API → UI → MCP → evidence)
-- [ ] **Phase 2.3** — Captions (API → UI → MCP → evidence)
+- [x] **Phase 2.1** — Transitions (API → UI → MCP → evidence)
+- [x] **Phase 2.2** — Keyframes (API → UI → MCP → evidence)
+- [x] **Phase 2.3** — Captions (API → UI → MCP → evidence)
 - [ ] **Phase 2.4** — Stretch animations only if time
 - [ ] **Phase 3** — Writeup + submission polish
 

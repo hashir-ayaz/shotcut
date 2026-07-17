@@ -148,5 +148,96 @@ EditorResult ControlServer::dispatchMethod(const QString &method, const QJsonObj
                                                 position);
     }
 
+    if (method == QStringLiteral("list_transition_presets"))
+        return m_editorService->listTransitionPresets();
+
+    if (method == QStringLiteral("apply_transition")) {
+        return m_editorService->applyTransition(params.value(QStringLiteral("trackIndex")).toInt(),
+                                                params.value(QStringLiteral("clipIndex")).toInt(),
+                                                params.value(QStringLiteral("presetId")).toString(),
+                                                params.value(QStringLiteral("durationFrames"))
+                                                    .toInt());
+    }
+
+    if (method == QStringLiteral("set_transition_duration")) {
+        return m_editorService->setTransitionDuration(
+            params.value(QStringLiteral("trackIndex")).toInt(),
+            params.value(QStringLiteral("transitionClipIndex")).toInt(),
+            params.value(QStringLiteral("durationFrames")).toInt());
+    }
+
+    if (method == QStringLiteral("get_transition")) {
+        return m_editorService->getTransition(params.value(QStringLiteral("trackIndex")).toInt(),
+                                              params.value(QStringLiteral("transitionClipIndex"))
+                                                  .toInt());
+    }
+
+    if (method == QStringLiteral("remove_transition")) {
+        return m_editorService->removeTransition(params.value(QStringLiteral("trackIndex")).toInt(),
+                                                 params.value(QStringLiteral("transitionClipIndex"))
+                                                     .toInt());
+    }
+
+    if (method == QStringLiteral("list_animatable_properties")) {
+        return m_editorService->listAnimatableProperties(
+            params.value(QStringLiteral("trackIndex")).toInt(),
+            params.value(QStringLiteral("clipIndex")).toInt());
+    }
+
+    if (method == QStringLiteral("add_keyframe")) {
+        return m_editorService->addKeyframe(params.value(QStringLiteral("trackIndex")).toInt(),
+                                            params.value(QStringLiteral("clipIndex")).toInt(),
+                                            params.value(QStringLiteral("propertyId")).toString(),
+                                            params.value(QStringLiteral("frame")).toInt(),
+                                            params.value(QStringLiteral("value")).toDouble(),
+                                            params.value(QStringLiteral("interpolation"))
+                                                .toString(QStringLiteral("linear")));
+    }
+
+    if (method == QStringLiteral("remove_keyframe")) {
+        return m_editorService->removeKeyframe(params.value(QStringLiteral("trackIndex")).toInt(),
+                                               params.value(QStringLiteral("clipIndex")).toInt(),
+                                               params.value(QStringLiteral("propertyId")).toString(),
+                                               params.value(QStringLiteral("frame")).toInt());
+    }
+
+    if (method == QStringLiteral("list_keyframes")) {
+        return m_editorService->listKeyframes(params.value(QStringLiteral("trackIndex")).toInt(),
+                                              params.value(QStringLiteral("clipIndex")).toInt(),
+                                              params.value(QStringLiteral("propertyId")).toString());
+    }
+
+    if (method == QStringLiteral("set_clip_property")) {
+        return m_editorService->setPropertyValue(params.value(QStringLiteral("trackIndex")).toInt(),
+                                                 params.value(QStringLiteral("clipIndex")).toInt(),
+                                                 params.value(QStringLiteral("propertyId")).toString(),
+                                                 params.value(QStringLiteral("value")).toDouble());
+    }
+
+    if (method == QStringLiteral("transcribe_captions")) {
+        return m_editorService->transcribeCaptions(
+            params.value(QStringLiteral("language")).toString(QStringLiteral("en")),
+            params.value(QStringLiteral("translateToEnglish")).toBool(),
+            params.value(QStringLiteral("trackName")).toString());
+    }
+
+    if (method == QStringLiteral("get_job_status"))
+        return m_editorService->getJobStatus(params.value(QStringLiteral("jobId")).toString());
+
+    if (method == QStringLiteral("get_captions"))
+        return m_editorService->getCaptions();
+
+    if (method == QStringLiteral("set_caption_text")) {
+        return m_editorService->setCaptionText(params.value(QStringLiteral("trackIndex")).toInt(),
+                                               params.value(QStringLiteral("cueIndex")).toInt(),
+                                               params.value(QStringLiteral("text")).toString());
+    }
+
+    if (method == QStringLiteral("import_captions")) {
+        return m_editorService->importCaptionsFile(params.value(QStringLiteral("path")).toString(),
+                                                   params.value(QStringLiteral("trackName"))
+                                                       .toString());
+    }
+
     return EditorResult::failure(QStringLiteral("unknown method: %1").arg(method));
 }

@@ -27,6 +27,7 @@
 #include "jobs/meltjob.h"
 #include "jobs/whisperjob.h"
 #include "mainwindow.h"
+#include "services/editorservice.h"
 #include "models/subtitlesmodel.h"
 #include "models/subtitlesselectionmodel.h"
 #include "qmltypes/qmlapplication.h"
@@ -463,6 +464,22 @@ void SubtitlesDock::setupActions()
                                      QIcon(":/icons/oxygen/32x32/actions/speech-to-text.png")));
     connect(action, &QAction::triggered, this, &SubtitlesDock::speechToText);
     Actions.add("subtitleSpeechToTextAction", action, windowTitle());
+
+    action = new QAction(tr("Auto Captions (API)..."), this);
+    action->setToolTip(tr("Generate captions via EditorService (Whisper)."));
+    connect(action, &QAction::triggered, this, [this]() {
+        if (EditorService *service = MAIN.editorService()) {
+            const EditorResult result = service->transcribeCaptions(
+                QLocale::languageToCode(QLocale::system().language(), QLocale::ISO639Part2),
+                false,
+                QStringLiteral("Auto Captions"));
+            if (!result.ok)
+                MAIN.showStatusMessage(result.error);
+            else
+                MAIN.showStatusMessage(tr("Caption transcription started."));
+        }
+    });
+    Actions.add("subtitleAutoCaptionsApiAction", action, windowTitle());
 
 #ifdef EXTERNAL_LAUNCHERS
     action = new QAction(tr("Text to Speech..."), this);

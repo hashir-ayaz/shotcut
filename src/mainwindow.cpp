@@ -21,6 +21,7 @@
 #include "Logger.h"
 #include "services/controlserver.h"
 #include "services/editorservice.h"
+#include "docks/transitionsdock.h"
 #include "actions.h"
 #include "autosavefile.h"
 #include "commands/playlistcommands.h"
@@ -879,6 +880,11 @@ void MainWindow::setupAndConnectDocks()
 
     m_subtitlesDock = new SubtitlesDock(this);
     m_subtitlesDock->hide();
+
+    m_transitionsDock = new TransitionsDock(this);
+    m_transitionsDock->hide();
+    m_transitionsDock->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_8));
+    ui->menuView->addAction(m_transitionsDock->toggleViewAction());
     m_subtitlesDock->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_9));
     m_subtitlesDock->setModel(m_timelineDock->subtitlesModel(),
                               m_timelineDock->subtitlesSelectionModel());
@@ -914,6 +920,8 @@ void MainWindow::setupAndConnectDocks()
     addDockWidget(Qt::LeftDockWidgetArea, m_playlistDock);
     addDockWidget(Qt::LeftDockWidgetArea, m_filtersDock);
     addDockWidget(Qt::LeftDockWidgetArea, m_encodeDock);
+    addDockWidget(Qt::LeftDockWidgetArea, m_transitionsDock);
+    tabifyDockWidget(m_filtersDock, m_transitionsDock);
     addDockWidget(Qt::LeftDockWidgetArea, m_notesDock);
     addDockWidget(Qt::LeftDockWidgetArea, m_subtitlesDock);
     tabifyDockWidget(m_propertiesDock, m_playlistDock);
