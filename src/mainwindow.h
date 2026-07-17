@@ -26,6 +26,8 @@
 #include <QMutex>
 #include <QNetworkAccessManager>
 #include <QScopedPointer>
+
+#include <memory>
 #include <QSharedPointer>
 #include <QTimer>
 #include <QUrl>
@@ -57,6 +59,8 @@ class NotesDock;
 class SubtitlesDock;
 class ScreenCapture;
 class HdrPreviewWindow;
+class EditorService;
+class ControlServer;
 
 class MainWindow : public QMainWindow
 {
@@ -88,6 +92,7 @@ public:
     bool isSourceClipMyProject(QString resource = MLT.resource(), bool withDialog = true);
     bool keyframesDockIsVisible() const;
     Player *player() const { return m_player; }
+    EditorService *editorService() const { return m_editorService.get(); }
 
     void keyPressEvent(QKeyEvent *);
     void keyReleaseEvent(QKeyEvent *);
@@ -230,6 +235,8 @@ private:
     ElementsDock *m_elementsDock;
     ScreenCapture *m_screenCapture;
     HdrPreviewWindow *m_hdrPreviewWindow{nullptr};
+    std::unique_ptr<EditorService> m_editorService;
+    std::unique_ptr<ControlServer> m_controlServer;
 
 public slots:
     bool isCompatibleWithProcessingMode(MltXmlChecker &checker, QString &fileName, bool &converted);

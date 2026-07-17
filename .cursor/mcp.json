@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "shotcut": {
+      "command": "npx",
+      "args": ["tsx", "${workspaceFolder}/mcp-shotcut/src/index.ts"],
+      "env": {
+        "SHOTCUT_WS_URL": "ws://127.0.0.1:3847"
+      }
+    }
+  }
+}

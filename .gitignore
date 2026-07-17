@@ -18,6 +18,7 @@ src/shotcut
 .directory
 *.orig
 src/qml/export-edl/node_modules
+mcp-shotcut/node_modules
 *.qmlc
 *.jsc
 .project

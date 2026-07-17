@@ -19,6 +19,8 @@
 #include "ui_mainwindow.h"
 
 #include "Logger.h"
+#include "services/controlserver.h"
+#include "services/editorservice.h"
 #include "actions.h"
 #include "autosavefile.h"
 #include "commands/playlistcommands.h"
@@ -938,6 +940,14 @@ void MainWindow::setupAndConnectDocks()
     tabifyDockWidget(m_keyframesDock, m_timelineDock);
     m_recentDock->raise();
     resetDockCorners();
+
+    m_editorService = std::make_unique<EditorService>(this);
+    m_controlServer = std::make_unique<ControlServer>(m_editorService.get(), this);
+    bool portOk = false;
+    int controlPort = qEnvironmentVariableIntValue("SHOTCUT_MCP_PORT", &portOk);
+    if (!portOk || controlPort <= 0)
+        controlPort = 3847;
+    m_controlServer->start(static_cast<quint16>(controlPort));
 }
 
 void MainWindow::setupMenuFile()

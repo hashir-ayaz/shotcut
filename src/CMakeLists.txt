@@ -111,6 +111,9 @@ add_executable(shotcut WIN32 MACOSX_BUNDLE
   openotherdialog.ui
   player.cpp player.h
   proxymanager.cpp proxymanager.h
+  services/controlserver.cpp services/controlserver.h
+  services/editorservice.cpp services/editorservice.h
+  services/editortypes.h
   qmltypes/colordialog.h qmltypes/colordialog.cpp
   qmltypes/colorpickeritem.cpp qmltypes/colorpickeritem.h
   qmltypes/colorwheelitem.cpp qmltypes/colorwheelitem.h

@@ -1,0 +1,33 @@
+---
+description: Local Homebrew macOS build/run for this Shotcut fork — MLT paths, run.sh wrapper, rebuild steps
+alwaysApply: true
+---
+
+# Shotcut local macOS (Homebrew) build
+
+Repo path: `~/development/shotcut`. Fork: `hashir-ayaz/shotcut`. Upstream remote: `upstream`.
+
+## How to build and run
+
+```bash
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="/opt/homebrew/opt/qt;/opt/homebrew" \
+  -DCMAKE_INSTALL_PREFIX="$HOME/development/shotcut/install" \
+  -S . -B build
+cmake --build build -j"$(sysctl -n hw.ncpu)"
+cmake --install build
+./run.sh   # REQUIRED after every install
+```
+
+Launch with `./run.sh` or `open install/Shotcut.app`. Full notes: `LOCAL_SETUP.md`.
+
+## Never forget: Homebrew MLT paths
+
+Homebrew uses `$(brew --prefix mlt)/lib/mlt` and `.../share/mlt`, **not** `mlt-7`. Wrong paths cause:
+
+- `mlt_repository_init: no plugins found in "/opt/homebrew/lib/mlt-7"`
+- Failed to open media / error saving projects
+
+`run.sh` sets `MLT_REPOSITORY`, `MLT_DATA`, `MLT_PROFILES_PATH`, `FREI0R_PATH`, bundles CuteLogger, and wraps the app binary as `Shotcut` → `Shotcut.bin`. After `cmake --install`, always run `./run.sh` once to restore the wrapper.
+
+Do not “fix” media/save bugs by changing Shotcut C++ until the log is checked for missing MLT plugins.
