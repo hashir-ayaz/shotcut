@@ -311,7 +311,10 @@ EditorResult EditorService::saveProject(const QString &path)
 
 EditorResult EditorService::addClipToTimeline(const QString &path,
                                               int trackIndex,
-                                              int position)
+                                              int position,
+                                              int inPoint,
+                                              int outPoint,
+                                              bool append)
 {
     if (path.isEmpty())
         return EditorResult::failure(QStringLiteral("path is required"));
@@ -327,7 +330,7 @@ EditorResult EditorService::addClipToTimeline(const QString &path,
 
     if (trackIndex < 0)
         trackIndex = timelineDock->currentTrack();
-    if (position < 0)
+    if (!append && position < 0)
         position = timelineDock->position();
 
     if (trackIndex < 0 || trackIndex >= model->trackList().size())
@@ -341,13 +344,33 @@ EditorResult EditorService::addClipToTimeline(const QString &path,
     if (!readyProducer || !readyProducer->is_valid())
         return EditorResult::failure(QStringLiteral("failed to prepare media: %1").arg(path));
 
+    // Optional source trim so incoming clips can accept AddTransitionByTrimIn
+    // (requires frame_in >= transition duration).
+    const int maxOut = qMax(0, readyProducer->get_length() - 1);
+    int resolvedIn = inPoint < 0 ? 0 : inPoint;
+    int resolvedOut = outPoint < 0 ? maxOut : outPoint;
+    if (resolvedIn > maxOut)
+        resolvedIn = maxOut;
+    if (resolvedOut > maxOut)
+        resolvedOut = maxOut;
+    if (resolvedOut < resolvedIn)
+        return EditorResult::failure(QStringLiteral("outPoint must be >= inPoint"));
+    readyProducer->set_in_and_out(resolvedIn, resolvedOut);
+
     const QString xml = MLT.XML(readyProducer);
-    m_mainWindow->undoStack()->push(
-        new Timeline::OverwriteCommand(*model, trackIndex, position, xml));
+    if (append) {
+        m_mainWindow->undoStack()->push(new Timeline::AppendCommand(*model, trackIndex, xml));
+    } else {
+        m_mainWindow->undoStack()->push(
+            new Timeline::OverwriteCommand(*model, trackIndex, position, xml));
+    }
 
     QJsonObject data;
     data.insert(QStringLiteral("trackIndex"), trackIndex);
-    data.insert(QStringLiteral("position"), position);
+    data.insert(QStringLiteral("position"), append ? -1 : position);
+    data.insert(QStringLiteral("inPoint"), resolvedIn);
+    data.insert(QStringLiteral("outPoint"), resolvedOut);
+    data.insert(QStringLiteral("append"), append);
     data.insert(QStringLiteral("resource"), path);
     return EditorResult::success(data);
 }

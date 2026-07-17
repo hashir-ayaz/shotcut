@@ -29,7 +29,10 @@ public:
     Q_INVOKABLE EditorResult saveProject(const QString &path);
     Q_INVOKABLE EditorResult addClipToTimeline(const QString &path,
                                                int trackIndex = -1,
-                                               int position = -1);
+                                               int position = -1,
+                                               int inPoint = -1,
+                                               int outPoint = -1,
+                                               bool append = false);
 
     Q_INVOKABLE EditorResult listTransitionPresets();
     Q_INVOKABLE EditorResult applyTransition(int trackIndex,

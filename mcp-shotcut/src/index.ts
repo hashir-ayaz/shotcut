@@ -71,7 +71,8 @@ server.registerTool(
 server.registerTool(
   "shotcut_add_clip",
   {
-    description: "Add a media clip to the timeline via EditorService",
+    description:
+      "Add a media clip to the timeline via EditorService. Use append+inPoint so the clip can accept transitions.",
     inputSchema: {
       path: z.string().describe("Absolute path to the media file"),
       trackIndex: z
@@ -83,13 +84,30 @@ server.registerTool(
         .number()
         .int()
         .optional()
-        .describe("Timeline position in frames; defaults to playhead"),
+        .describe("Timeline position in frames; defaults to playhead (ignored when append=true)"),
+      inPoint: z
+        .number()
+        .int()
+        .optional()
+        .describe("Source in-point in frames; set >= transition duration for incoming clips"),
+      outPoint: z
+        .number()
+        .int()
+        .optional()
+        .describe("Source out-point in frames"),
+      append: z
+        .boolean()
+        .optional()
+        .describe("If true, append to end of track instead of overwrite at position"),
     },
   },
-  async ({ path, trackIndex, position }) => {
+  async ({ path, trackIndex, position, inPoint, outPoint, append }) => {
     const params: Record<string, unknown> = { path };
     if (trackIndex !== undefined) params.trackIndex = trackIndex;
     if (position !== undefined) params.position = position;
+    if (inPoint !== undefined) params.inPoint = inPoint;
+    if (outPoint !== undefined) params.outPoint = outPoint;
+    if (append !== undefined) params.append = append;
     return formatResult(await client.request("add_clip", params));
   },
 );

@@ -143,9 +143,15 @@ EditorResult ControlServer::dispatchMethod(const QString &method, const QJsonObj
     if (method == QStringLiteral("add_clip")) {
         int trackIndex = params.value(QStringLiteral("trackIndex")).toInt(-1);
         int position = params.value(QStringLiteral("position")).toInt(-1);
+        int inPoint = params.value(QStringLiteral("inPoint")).toInt(-1);
+        int outPoint = params.value(QStringLiteral("outPoint")).toInt(-1);
+        bool append = params.value(QStringLiteral("append")).toBool(false);
         return m_editorService->addClipToTimeline(params.value(QStringLiteral("path")).toString(),
                                                 trackIndex,
-                                                position);
+                                                position,
+                                                inPoint,
+                                                outPoint,
+                                                append);
     }
 
     if (method == QStringLiteral("list_transition_presets"))
