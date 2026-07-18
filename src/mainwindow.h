@@ -63,6 +63,8 @@ class EditorService;
 class ControlServer;
 class TransitionsDock;
 class AnimationsDock;
+class AudioDock;
+class SpeedDock;
 
 class MainWindow : public QMainWindow
 {
@@ -235,6 +237,8 @@ private:
     SubtitlesDock *m_subtitlesDock;
     TransitionsDock *m_transitionsDock{nullptr};
     AnimationsDock *m_animationsDock{nullptr};
+    AudioDock *m_audioDock{nullptr};
+    SpeedDock *m_speedDock{nullptr};
     std::unique_ptr<QWidget> m_producerWidget;
     FilesDock *m_filesDock;
     ElementsDock *m_elementsDock;

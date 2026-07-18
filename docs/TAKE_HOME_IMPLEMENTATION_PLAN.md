@@ -492,8 +492,9 @@ Implement as presets that set filter + keyframe patterns via the same keyframe A
 - Create: `mcp-shotcut/src/tools/audio.ts` (new MCP tool group)
 - Modify: `mcp-shotcut/src/index.ts` (register the group)
 - Modify: `mcp-shotcut/README.md` (list new tools)
-- (Optional thin UI) Create: `src/docks/audiodock.cpp` / `.h`; modify `src/CMakeLists.txt`, `src/mainwindow.cpp` / `.h`
-- Leverage: `src/qml/filters/audio_rnnoise_link/*`, `MLT.getLink()` (`src/mltcontroller.cpp:1658`)
+- Create: `src/docks/audiodock.cpp` / `.h` (thin UI, **required**)
+- Modify: `src/CMakeLists.txt` (add dock sources), `src/mainwindow.cpp` / `.h` (construct + register dock)
+- Leverage: `src/qml/filters/audio_rnnoise_link/*`, `MLT.getLink()` (`src/mltcontroller.cpp:1658`), `src/docks/animationsdock.*` (copy as template)
 
 **EditorService API (add to `editorservice.h`, implement in `.cpp`):**
 
@@ -574,13 +575,58 @@ if (method == QStringLiteral("remove_audio_denoise"))
 
 Copy the `formatResult` helper + `registerAudioTools(server, client)` signature verbatim from `animations.ts`. Register in `index.ts`: `import { registerAudioTools } from "./tools/audio.js";` then `registerAudioTools(server, client);` after `registerCaptionTools(...)`.
 
-**UI (thin, optional but preferred for parity):** A minimal `AudioDock` mirroring `AnimationsDock` — a strength `QSpinBox` (0–100%) + "Reduce Noise on Selected Clip" button calling `MAIN.editorService()->applyAudioDenoise(track, clip, pct/100.0)` on `MAIN.timelineDock()->selection().first()`. Register in `mainwindow.cpp` (~line 890 block), member + forward-decl in `mainwindow.h`, add sources to `src/CMakeLists.txt` (docks block ~line 119). If timeboxed, the CapCut-parity story can lean on MCP + the existing Filters dock (which already lists the RNNoise link), and this dock can be skipped — document the choice.
+**UI (thin — required for parity):** Build an `AudioDock` by **copying `src/docks/animationsdock.{h,cpp}` and adapting it**. Keep it thin — the click handler only calls `EditorService`, no MLT logic.
+
+Widgets: a strength `QSpinBox` (range 0–100, suffix "%", default 100) and an "Reduce Noise on Selected Clip" `QPushButton`.
+
+`AudioDock` header (mirror `animationsdock.h`):
+```cpp
+class QSpinBox;
+class AudioDock : public QDockWidget {
+    Q_OBJECT
+public:
+    explicit AudioDock(QWidget *parent = nullptr);
+private slots:
+    void onApplyClicked();
+private:
+    QSpinBox *m_amountSpinBox;
+};
+```
+
+`onApplyClicked()` (mirror `AnimationsDock::onApplyClicked` at `animationsdock.cpp:68`):
+```cpp
+EditorService *service = MAIN.editorService();
+if (!service) return;
+const QList<QPoint> selection = MAIN.timelineDock()->selection();
+if (selection.isEmpty()) {
+    MAIN.showStatusMessage(tr("Select a clip to reduce noise."));
+    return;
+}
+const QPoint point = selection.first();          // point.y()=track, point.x()=clip
+const double amount = m_amountSpinBox->value() / 100.0;
+const EditorResult result = service->applyAudioDenoise(point.y(), point.x(), amount);
+if (!result.ok) MAIN.showStatusMessage(result.error);
+else MAIN.showStatusMessage(tr("Noise reduction applied."));
+```
+
+**Wiring (exact locations):**
+- `src/CMakeLists.txt` — add `docks/audiodock.cpp docks/audiodock.h` next to `docks/animationsdock.cpp docks/animationsdock.h` (~line 119).
+- `src/mainwindow.h` — add forward decl `class AudioDock;` (near `class AnimationsDock;`, line ~65) and member `AudioDock *m_audioDock{nullptr};` (near `m_animationsDock`, line ~237).
+- `src/mainwindow.cpp` — `#include "docks/audiodock.h"`; in the dock-setup block (~line 890) construct and register mirroring `m_animationsDock`:
+```cpp
+m_audioDock = new AudioDock(this);
+m_audioDock->hide();
+m_audioDock->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_6));
+ui->menuView->addAction(m_audioDock->toggleViewAction());
+```
+Then in the left-area layout block (~line 930): `addDockWidget(Qt::LeftDockWidgetArea, m_audioDock);` and `tabifyDockWidget(m_filtersDock, m_audioDock);`
+- Verify Ctrl+Shift+6 is free (Animations uses 7, Transitions 8, Subtitles 9); pick another unused combo if it clashes.
 
 **Steps:**
 - [ ] **Step 1:** Add the 3 methods to `editorservice.h` + implement in `.cpp` with the Link/Chain helper. Include `<MltChain.h>`, `<MltLink.h>`.
 - [ ] **Step 2:** Add 3 RPC branches to `controlserver.cpp`.
 - [ ] **Step 3:** Create `mcp-shotcut/src/tools/audio.ts`; register in `index.ts`.
-- [ ] **Step 4:** (Optional) Add `AudioDock`; wire into `mainwindow` + `CMakeLists`.
+- [ ] **Step 4:** Add `AudioDock` (copy `animationsdock.*`); wire into `mainwindow.{h,cpp}` + `CMakeLists.txt`; add View-menu toggle.
 - [ ] **Step 5:** Build + install + `./run.sh`.
 - [ ] **Step 6:** Verify: MCP `apply_audio_denoise` on an audio clip → `get_audio_denoise` returns `{present:true, amount:1.0}` → link visible in Filters dock as "Reduce Noise: Audio (RNNoise)" → survives save/reload → audible/export. Verify `remove_audio_denoise` clears it.
 - [ ] **Step 7:** Trajectory → `docs/agent-trajectories/05-audio-denoise.md` + trimmed recording under `docs/recordings/`.
@@ -609,8 +655,9 @@ Copy the `formatResult` helper + `registerAudioTools(server, client)` signature 
 - Modify: `src/services/editorservice.h` / `.cpp`
 - Modify: `src/services/controlserver.cpp`
 - Create: `mcp-shotcut/src/tools/speed.ts`; modify `mcp-shotcut/src/index.ts`, `mcp-shotcut/README.md`
-- (Optional thin UI) Create: `src/docks/speeddock.cpp` / `.h`; wire into `mainwindow` + `CMakeLists`
-- Leverage: `src/qml/filters/speed/*`, `MLT.getLink()`, chain helper from Task 2.5
+- Create: `src/docks/speeddock.cpp` / `.h` (thin UI, **required**)
+- Modify: `src/CMakeLists.txt` (add dock sources), `src/mainwindow.cpp` / `.h` (construct + register dock)
+- Leverage: `src/qml/filters/speed/*`, `MLT.getLink()`, chain helper from Task 2.5, `src/docks/animationsdock.*` (template)
 
 **Preset model (`speedpresets.h` — mirror `animationpresets.h`):**
 
@@ -696,14 +743,71 @@ Writing the curve (used by preset / constant / custom):
 
 Register `registerSpeedTools(server, client)` in `index.ts`. For the keyframes array use `z.array(z.object({ position: z.number().optional(), frame: z.number().int().optional(), speed: z.number(), interpolation: z.string().optional() }))`.
 
-**UI (thin, optional):** `SpeedDock` mirroring `AnimationsDock`: preset `QListWidget` (from `SpeedPresets::all()`), a constant-speed `QDoubleSpinBox`, a "pitch compensation" `QCheckBox`, and an Apply button → `MAIN.editorService()->applySpeedPreset(...)` / `applyConstantSpeed(...)` on the selected clip. Same registration steps as Task 2.5's dock. If timeboxed, rely on MCP + the existing Speed/Time Remap filter UI (Filters dock) and document.
+**UI (thin — required for parity):** Build a `SpeedDock` by **copying `src/docks/animationsdock.{h,cpp}` and adapting it**. Thin only — handlers call `EditorService`, no MLT logic.
+
+Widgets:
+- `m_presetList` (`QListWidget`) populated from `SpeedPresets::all()` (store `preset.id` in `Qt::UserRole`, same as `AnimationsDock`).
+- `m_speedSpinBox` (`QDoubleSpinBox`, range 0.1–10.0, default 1.0, suffix " x") for constant speed.
+- `m_pitchCheckBox` (`QCheckBox` "Compensate pitch").
+- Two buttons: "Apply Preset to Selected Clip" and "Apply Constant Speed to Selected Clip".
+
+`SpeedDock` header (mirror `animationsdock.h`):
+```cpp
+class QListWidget; class QDoubleSpinBox; class QCheckBox;
+class SpeedDock : public QDockWidget {
+    Q_OBJECT
+public:
+    explicit SpeedDock(QWidget *parent = nullptr);
+private slots:
+    void onApplyPresetClicked();
+    void onApplyConstantClicked();
+private:
+    QListWidget *m_presetList;
+    QDoubleSpinBox *m_speedSpinBox;
+    QCheckBox *m_pitchCheckBox;
+};
+```
+
+Handlers (mirror `AnimationsDock::onApplyClicked`; resolve the selected clip the same way):
+```cpp
+// shared prologue in both slots:
+EditorService *service = MAIN.editorService();
+if (!service) return;
+const QList<QPoint> selection = MAIN.timelineDock()->selection();
+if (selection.isEmpty()) { MAIN.showStatusMessage(tr("Select a clip.")); return; }
+const QPoint p = selection.first();   // p.y()=track, p.x()=clip
+const bool pitch = m_pitchCheckBox->isChecked();
+
+// onApplyPresetClicked:
+const QListWidgetItem *item = m_presetList->currentItem();
+if (!item) return;
+const QString presetId = item->data(Qt::UserRole).toString();
+const EditorResult r = service->applySpeedPreset(p.y(), p.x(), presetId, pitch);
+
+// onApplyConstantClicked:
+const EditorResult r = service->applyConstantSpeed(p.y(), p.x(), m_speedSpinBox->value(), pitch);
+// both: if (!r.ok) MAIN.showStatusMessage(r.error); else MAIN.showStatusMessage(tr("Speed applied."));
+```
+
+**Wiring (exact locations):**
+- `src/CMakeLists.txt` — add `docks/speeddock.cpp docks/speeddock.h` next to the other dock sources (~line 119).
+- `src/mainwindow.h` — forward decl `class SpeedDock;` (line ~65) and member `SpeedDock *m_speedDock{nullptr};` (line ~237).
+- `src/mainwindow.cpp` — `#include "docks/speeddock.h"`; construct in the dock-setup block (~line 890):
+```cpp
+m_speedDock = new SpeedDock(this);
+m_speedDock->hide();
+m_speedDock->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_5));
+ui->menuView->addAction(m_speedDock->toggleViewAction());
+```
+Then (~line 930): `addDockWidget(Qt::LeftDockWidgetArea, m_speedDock);` and `tabifyDockWidget(m_filtersDock, m_speedDock);`
+- Confirm Ctrl+Shift+5 is unused (7=Animations, 8=Transitions, 9=Subtitles, 6=AudioDock from Task 2.5); pick another if it clashes.
 
 **Steps:**
 - [ ] **Step 1:** Create `speedpresets.h/.cpp`; add to `src/CMakeLists.txt`.
 - [ ] **Step 2:** Add EditorService methods + shared `ensureTimeremapLink` + curve writer. Include `<MltChain.h>`, `<MltLink.h>`.
 - [ ] **Step 3:** Add RPC branches in `controlserver.cpp`.
 - [ ] **Step 4:** Create `mcp-shotcut/src/tools/speed.ts`; register in `index.ts`.
-- [ ] **Step 5:** (Optional) Add `SpeedDock`; wire into `mainwindow` + `CMakeLists`.
+- [ ] **Step 5:** Add `SpeedDock` (copy `animationsdock.*`); wire into `mainwindow.{h,cpp}` + `CMakeLists.txt`; add View-menu toggle.
 - [ ] **Step 6:** Build + install + `./run.sh`. Verify: `apply_speed_preset montage` on a clip → `get_speed_curve` returns scaled `speed_map` keyframes → Filters dock shows the Speed/Time Remap link → preview shows ramp → survives save/reload → **export**; confirm whether output length is fixed (expected) and record it. Test `apply_constant_speed 2.0`, `set_speed_keyframes` custom, and `remove_speed`.
 - [ ] **Step 7:** Trajectory → `docs/agent-trajectories/06-speed-curve.md` + trimmed recording.
 
@@ -832,8 +936,8 @@ Logs: `~/Library/Application Support/Meltytech/Shotcut/shotcut-log.txt`
 - [x] **Phase 2.2** — Keyframes (API → UI → MCP → evidence)
 - [x] **Phase 2.3** — Captions (API → UI → MCP → evidence)
 - [x] **Phase 2.4** — Clip animation presets (stretch)
-- [ ] **Phase 2.5** — Audio denoise / RNNoise (API → MCP → optional UI → evidence)
-- [ ] **Phase 2.6** — Speed curve presets / Time Remap (API → MCP → optional UI → evidence)
+- [ ] **Phase 2.5** — Audio denoise / RNNoise (API → UI dock → MCP → evidence)
+- [ ] **Phase 2.6** — Speed curve presets / Time Remap (API → UI dock → MCP → evidence)
 - [ ] **Phase 3** — Writeup + submission polish
 
 ---

@@ -1,0 +1,124 @@
+<?xml version="1.0" standalone="no"?>
+<mlt LC_NUMERIC="C" version="7.40.0" title="Shotcut version 26.7.18" producer="main_bin">
+  <profile description="automatic" width="1920" height="1080" progressive="1" sample_aspect_num="1" sample_aspect_den="1" display_aspect_num="16" display_aspect_den="9" frame_rate_num="30000" frame_rate_den="1001" colorspace="709"/>
+  <playlist id="main_bin">
+    <property name="shotcut:colorTransfer">sdr</property>
+    <property name="xml_retain">1</property>
+  </playlist>
+  <producer id="black" in="00:00:00.000" out="00:01:54.621">
+    <property name="length">00:01:54.655</property>
+    <property name="eof">pause</property>
+    <property name="resource">0</property>
+    <property name="aspect_ratio">1</property>
+    <property name="mlt_service">color</property>
+    <property name="mlt_image_format">rgba</property>
+    <property name="set.test_audio">0</property>
+  </producer>
+  <playlist id="background">
+    <entry producer="black" in="00:00:00.000" out="00:01:54.621"/>
+  </playlist>
+  <chain id="chain0" out="00:01:54.621">
+    <property name="length">00:01:54.655</property>
+    <property name="eof">pause</property>
+    <property name="resource">/Users/hashirayaz/Documents/test-product-2.mp4</property>
+    <property name="mlt_service">avformat-novalidate</property>
+    <property name="meta.media.nb_streams">2</property>
+    <property name="meta.media.0.stream.type">audio</property>
+    <property name="meta.media.0.codec.sample_fmt">fltp</property>
+    <property name="meta.media.0.codec.sample_rate">48000</property>
+    <property name="meta.media.0.codec.channels">2</property>
+    <property name="meta.media.0.codec.layout">stereo</property>
+    <property name="meta.media.0.codec.name">aac</property>
+    <property name="meta.media.0.codec.long_name">AAC (Advanced Audio Coding)</property>
+    <property name="meta.media.0.codec.bit_rate">103702</property>
+    <property name="meta.attr.0.stream.creation_time.markup">2025-11-28T10:22:00.000000Z</property>
+    <property name="meta.attr.0.stream.language.markup">eng</property>
+    <property name="meta.attr.0.stream.handler_name.markup">Core Media Audio</property>
+    <property name="meta.media.1.stream.type">video</property>
+    <property name="meta.media.1.stream.frame_rate">29.97</property>
+    <property name="meta.media.1.stream.sample_aspect_ratio">1</property>
+    <property name="meta.media.1.codec.width">1920</property>
+    <property name="meta.media.1.codec.height">1080</property>
+    <property name="meta.media.1.codec.rotate">0</property>
+    <property name="meta.media.1.codec.pix_fmt">yuv420p</property>
+    <property name="meta.media.1.codec.sample_aspect_ratio">0</property>
+    <property name="meta.media.1.codec.colorspace">709</property>
+    <property name="meta.media.1.codec.color_trc">1</property>
+    <property name="meta.media.1.codec.name">h264</property>
+    <property name="meta.media.1.codec.long_name">H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10</property>
+    <property name="meta.media.1.codec.bit_rate">5194989</property>
+    <property name="meta.attr.1.stream.creation_time.markup">2025-11-28T10:22:00.000000Z</property>
+    <property name="meta.attr.1.stream.handler_name.markup">Core Media Video</property>
+    <property name="meta.attr.major_brand.markup">mp42</property>
+    <property name="meta.attr.minor_version.markup">1</property>
+    <property name="meta.attr.compatible_brands.markup">isommp41mp42</property>
+    <property name="meta.attr.creation_time.markup">2025-11-28T10:22:00.000000Z</property>
+    <property name="seekable">1</property>
+    <property name="meta.media.sample_aspect_num">1</property>
+    <property name="meta.media.sample_aspect_den">1</property>
+    <property name="audio_index">0</property>
+    <property name="video_index">1</property>
+    <property name="creation_time">2025-11-28T10:22:00</property>
+    <property name="vstream">0</property>
+    <property name="meta.media.frame_rate_num">30000</property>
+    <property name="meta.media.frame_rate_den">1001</property>
+    <property name="meta.media.colorspace">709</property>
+    <property name="meta.media.color_trc">1</property>
+    <property name="meta.media.has_b_frames">0</property>
+    <property name="meta.media.width">1920</property>
+    <property name="meta.media.height">1080</property>
+    <property name="meta.media.aspect_ratio">1</property>
+    <property name="meta.media.color_range">mpeg</property>
+    <property name="astream">0</property>
+    <property name="xml">was here</property>
+    <property name="shotcut:hash">dc12365be303b04c0ea41b18099b814a</property>
+    <property name="meta.media.top_field_first">0</property>
+    <property name="meta.media.progressive">1</property>
+    <property name="shotcut:caption">test-product-2.mp4</property>
+    <link id="link0" in="0" out="00:01:54.621">
+      <property name="mlt_service">timeremap</property>
+      <property name="shotcut:filter">speedForward</property>
+      <property name="image_mode">nearest</property>
+      <property name="pitch">0</property>
+      <property name="speed_map">00:00:00.000~=2;00:00:45.846~=0.4;00:01:08.775~=0.4;00:01:54.621~=2</property>
+      <property name="speed">2</property>
+    </link>
+    <filter id="filter0" out="00:01:54.621">
+      <property name="mlt_service">avfilter.arnndn</property>
+      <property name="shotcut:filter">audioArnndnFallback</property>
+      <property name="av.mix">0.9</property>
+    </filter>
+  </chain>
+  <playlist id="playlist0">
+    <property name="shotcut:video">1</property>
+    <property name="shotcut:name">V1</property>
+    <entry producer="chain0" in="00:00:00.000" out="00:01:54.621"/>
+  </playlist>
+  <tractor id="tractor0" title="Shotcut version 26.7.18" in="00:00:00.000" out="00:01:54.621">
+    <property name="shotcut:colorTransfer">sdr</property>
+    <property name="shotcut">1</property>
+    <property name="shotcut:projectAudioChannels">2</property>
+    <property name="shotcut:projectFolder">0</property>
+    <property name="shotcut:processingMode">Native8Cpu</property>
+    <property name="shotcut:skipConvert">0</property>
+    <track producer="background"/>
+    <track producer="playlist0"/>
+    <transition id="transition0">
+      <property name="a_track">0</property>
+      <property name="b_track">1</property>
+      <property name="mlt_service">mix</property>
+      <property name="always_active">1</property>
+      <property name="sum">1</property>
+    </transition>
+    <transition id="transition1">
+      <property name="a_track">0</property>
+      <property name="b_track">1</property>
+      <property name="compositing">0</property>
+      <property name="distort">0</property>
+      <property name="rotate_center">0</property>
+      <property name="mlt_service">qtblend</property>
+      <property name="threads">0</property>
+      <property name="disable">1</property>
+    </transition>
+  </tractor>
+</mlt>

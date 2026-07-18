@@ -70,6 +70,15 @@ Restart the MCP server in Cursor after pulling Phase 2 changes so new tools appe
 | `shotcut_get_captions` | `get_captions` |
 | `shotcut_set_caption_text` | `set_caption_text` |
 | `shotcut_import_captions` | `import_captions` |
+| `shotcut_apply_audio_denoise` | `apply_audio_denoise` |
+| `shotcut_get_audio_denoise` | `get_audio_denoise` |
+| `shotcut_remove_audio_denoise` | `remove_audio_denoise` |
+| `shotcut_list_speed_presets` | `list_speed_presets` |
+| `shotcut_apply_speed_preset` | `apply_speed_preset` |
+| `shotcut_apply_constant_speed` | `apply_constant_speed` |
+| `shotcut_set_speed_keyframes` | `set_speed_keyframes` |
+| `shotcut_get_speed_curve` | `get_speed_curve` |
+| `shotcut_remove_speed` | `remove_speed` |
 
 All business logic lives in Shotcut's C++ `EditorService`. This package is a thin MCP adapter.
 
@@ -77,6 +86,6 @@ All business logic lives in Shotcut's C++ `EditorService`. This package is a thi
 
 | CapCut ref | Feature | Status |
 |------------|---------|--------|
-| #2 | Speed curve | Out of scope |
+| #2 | Speed curve | Shipped (presets + constant + custom keyframes; segment length fixed) |
 | #4 | Clip animations | Shipped (6 presets, In/Out/Combo) |
-| #6 | Denoise & stem separation | Out of scope |
+| #6 | Denoise & stem separation | Denoise shipped (`rnnoise` Link when MLT provides it; Homebrew builds without `librnnoise` fall back to FFmpeg `avfilter.arnndn`); stem separation still out of scope |

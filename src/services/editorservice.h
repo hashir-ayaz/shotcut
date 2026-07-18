@@ -12,6 +12,7 @@
 
 #include "editortypes.h"
 
+#include <QJsonArray>
 #include <QObject>
 
 class MainWindow;
@@ -79,6 +80,26 @@ public:
     Q_INVOKABLE EditorResult setCaptionText(int trackIndex, int cueIndex, const QString &text);
     Q_INVOKABLE EditorResult importCaptionsFile(const QString &srtPath,
                                                 const QString &trackName = QString());
+
+    Q_INVOKABLE EditorResult applyAudioDenoise(int trackIndex, int clipIndex, double amount = 1.0);
+    Q_INVOKABLE EditorResult getAudioDenoise(int trackIndex, int clipIndex);
+    Q_INVOKABLE EditorResult removeAudioDenoise(int trackIndex, int clipIndex);
+
+    Q_INVOKABLE EditorResult listSpeedPresets();
+    Q_INVOKABLE EditorResult applySpeedPreset(int trackIndex,
+                                              int clipIndex,
+                                              const QString &presetId,
+                                              bool pitchCompensation = false);
+    Q_INVOKABLE EditorResult applyConstantSpeed(int trackIndex,
+                                                int clipIndex,
+                                                double speed,
+                                                bool pitchCompensation = false);
+    Q_INVOKABLE EditorResult setSpeedKeyframes(int trackIndex,
+                                               int clipIndex,
+                                               const QJsonArray &keyframes,
+                                               bool pitchCompensation = false);
+    Q_INVOKABLE EditorResult getSpeedCurve(int trackIndex, int clipIndex);
+    Q_INVOKABLE EditorResult removeSpeed(int trackIndex, int clipIndex);
 
 private:
     MainWindow *m_mainWindow;

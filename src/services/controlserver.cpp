@@ -257,5 +257,58 @@ EditorResult ControlServer::dispatchMethod(const QString &method, const QJsonObj
                                                        .toString());
     }
 
+    if (method == QStringLiteral("apply_audio_denoise")) {
+        return m_editorService->applyAudioDenoise(params.value(QStringLiteral("trackIndex")).toInt(),
+                                                  params.value(QStringLiteral("clipIndex")).toInt(),
+                                                  params.value(QStringLiteral("amount")).toDouble(1.0));
+    }
+
+    if (method == QStringLiteral("get_audio_denoise")) {
+        return m_editorService->getAudioDenoise(params.value(QStringLiteral("trackIndex")).toInt(),
+                                                params.value(QStringLiteral("clipIndex")).toInt());
+    }
+
+    if (method == QStringLiteral("remove_audio_denoise")) {
+        return m_editorService->removeAudioDenoise(params.value(QStringLiteral("trackIndex")).toInt(),
+                                                   params.value(QStringLiteral("clipIndex")).toInt());
+    }
+
+    if (method == QStringLiteral("list_speed_presets"))
+        return m_editorService->listSpeedPresets();
+
+    if (method == QStringLiteral("apply_speed_preset")) {
+        return m_editorService->applySpeedPreset(
+            params.value(QStringLiteral("trackIndex")).toInt(),
+            params.value(QStringLiteral("clipIndex")).toInt(),
+            params.value(QStringLiteral("presetId")).toString(),
+            params.value(QStringLiteral("pitchCompensation")).toBool());
+    }
+
+    if (method == QStringLiteral("apply_constant_speed")) {
+        return m_editorService->applyConstantSpeed(
+            params.value(QStringLiteral("trackIndex")).toInt(),
+            params.value(QStringLiteral("clipIndex")).toInt(),
+            params.value(QStringLiteral("speed")).toDouble(),
+            params.value(QStringLiteral("pitchCompensation")).toBool());
+    }
+
+    if (method == QStringLiteral("set_speed_keyframes")) {
+        return m_editorService->setSpeedKeyframes(
+            params.value(QStringLiteral("trackIndex")).toInt(),
+            params.value(QStringLiteral("clipIndex")).toInt(),
+            params.value(QStringLiteral("keyframes")).toArray(),
+            params.value(QStringLiteral("pitchCompensation")).toBool());
+    }
+
+    if (method == QStringLiteral("get_speed_curve")) {
+        return m_editorService->getSpeedCurve(params.value(QStringLiteral("trackIndex")).toInt(),
+                                              params.value(QStringLiteral("clipIndex")).toInt());
+    }
+
+    if (method == QStringLiteral("remove_speed")) {
+        return m_editorService->removeSpeed(params.value(QStringLiteral("trackIndex")).toInt(),
+                                            params.value(QStringLiteral("clipIndex")).toInt());
+    }
+
     return EditorResult::failure(QStringLiteral("unknown method: %1").arg(method));
 }

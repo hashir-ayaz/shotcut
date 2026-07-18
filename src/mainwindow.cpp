@@ -22,6 +22,8 @@
 #include "services/controlserver.h"
 #include "services/editorservice.h"
 #include "docks/animationsdock.h"
+#include "docks/audiodock.h"
+#include "docks/speeddock.h"
 #include "docks/transitionsdock.h"
 #include "actions.h"
 #include "autosavefile.h"
@@ -891,6 +893,17 @@ void MainWindow::setupAndConnectDocks()
     m_animationsDock->hide();
     m_animationsDock->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_7));
     ui->menuView->addAction(m_animationsDock->toggleViewAction());
+
+    m_audioDock = new AudioDock(this);
+    m_audioDock->hide();
+    m_audioDock->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_6));
+    ui->menuView->addAction(m_audioDock->toggleViewAction());
+
+    m_speedDock = new SpeedDock(this);
+    m_speedDock->hide();
+    m_speedDock->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_5));
+    ui->menuView->addAction(m_speedDock->toggleViewAction());
+
     m_subtitlesDock->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_9));
     m_subtitlesDock->setModel(m_timelineDock->subtitlesModel(),
                               m_timelineDock->subtitlesSelectionModel());
@@ -928,8 +941,12 @@ void MainWindow::setupAndConnectDocks()
     addDockWidget(Qt::LeftDockWidgetArea, m_encodeDock);
     addDockWidget(Qt::LeftDockWidgetArea, m_transitionsDock);
     addDockWidget(Qt::LeftDockWidgetArea, m_animationsDock);
+    addDockWidget(Qt::LeftDockWidgetArea, m_audioDock);
+    addDockWidget(Qt::LeftDockWidgetArea, m_speedDock);
     tabifyDockWidget(m_filtersDock, m_transitionsDock);
     tabifyDockWidget(m_filtersDock, m_animationsDock);
+    tabifyDockWidget(m_filtersDock, m_audioDock);
+    tabifyDockWidget(m_filtersDock, m_speedDock);
     addDockWidget(Qt::LeftDockWidgetArea, m_notesDock);
     addDockWidget(Qt::LeftDockWidgetArea, m_subtitlesDock);
     tabifyDockWidget(m_propertiesDock, m_playlistDock);

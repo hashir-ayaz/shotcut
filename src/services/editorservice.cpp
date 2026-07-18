@@ -25,19 +25,25 @@
 #include "models/attachedfiltersmodel.h"
 #include "models/multitrackmodel.h"
 #include "models/subtitlesmodel.h"
+#include "qmltypes/qmlapplication.h"
 #include "qmltypes/qmlfilter.h"
 #include "qmltypes/qmlmetadata.h"
 #include "services/animationpresets.h"
+#include "services/speedpresets.h"
 #include "services/transitionpresets.h"
 #include "settings.h"
 #include "shotcut_mlt_properties.h"
 #include "util.h"
 
 #include <MltAnimation.h>
+#include <MltChain.h>
 #include <MltFilter.h>
+#include <MltLink.h>
 #include <MltTransition.h>
 #include <MltTractor.h>
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QLocale>
@@ -157,6 +163,17 @@ void syncFilterInOut(Mlt::Filter *filter, Mlt::Producer *producer)
     filter->set_in_and_out(in, out);
 }
 
+void syncLinkInOut(Mlt::Link *link, Mlt::Producer *producer)
+{
+    if (!link || !link->is_valid() || !producer || !producer->is_valid())
+        return;
+    const int in = producer->get(kFilterInProperty) ? producer->get_int(kFilterInProperty)
+                                                    : producer->get_in();
+    const int out = producer->get(kFilterOutProperty) ? producer->get_int(kFilterOutProperty)
+                                                      : producer->get_out();
+    link->set_in_and_out(in, out);
+}
+
 Mlt::Filter *ensureShotcutFilter(Mlt::Producer *producer, const QString &filterId)
 {
     if (Mlt::Filter *existing = findShotcutFilter(producer, filterId)) {
@@ -243,6 +260,188 @@ double keyframeValueForProperty(QmlFilter &qmlFilter,
     if (propertyId == QStringLiteral("position.y"))
         return rect.y();
     return qmlFilter.getDouble(param, keyFrame);
+}
+
+// Returns the number of leading "normalizer" links (_loader==1). New links must
+// be inserted AFTER these, mirroring AttachedFiltersModel / freezeFrame.
+int normalizerLinkCount(Mlt::Chain &chain)
+{
+    int count = 0;
+    for (int i = 0; i < chain.link_count(); ++i) {
+        QScopedPointer<Mlt::Link> link(chain.link(i));
+        if (link && link->is_valid() && link->get_int("_loader"))
+            count++;
+        else
+            break;
+    }
+    return count;
+}
+
+Mlt::Link *findAudioRnnoiseLink(Mlt::Producer &producer)
+{
+    Mlt::Link *link = MLT.getLink(QStringLiteral("audioRnnoiseLink"), &producer);
+    if (!link)
+        link = MLT.getLink(QStringLiteral("rnnoise"), &producer);
+    return link;
+}
+
+Mlt::Filter *findAudioArnndnFilter(Mlt::Producer &producer)
+{
+    if (!producer.is_valid())
+        return nullptr;
+    for (int i = 0; i < producer.filter_count(); ++i) {
+        Mlt::Filter *filter = producer.filter(i);
+        if (!filter || !filter->is_valid()) {
+            delete filter;
+            continue;
+        }
+        const QString shotcutId = QString::fromUtf8(filter->get(kShotcutFilterProperty));
+        const QString mltService = QString::fromUtf8(filter->get("mlt_service"));
+        if (shotcutId == QStringLiteral("audioArnndnFallback")
+            || mltService.contains(QStringLiteral("arnndn"), Qt::CaseInsensitive)) {
+            return filter;
+        }
+        delete filter;
+    }
+    return nullptr;
+}
+
+// FFmpeg arnndn requires an external .rnnn model; without it the filter can mute audio.
+QString resolveArnndnModelPath()
+{
+    const QByteArray fromEnv = qgetenv("SHOTCUT_ARNNDN_MODEL");
+    if (!fromEnv.isEmpty() && QFileInfo::exists(QString::fromLocal8Bit(fromEnv)))
+        return QString::fromLocal8Bit(fromEnv);
+
+    QDir dataDir = QmlApplication::dataDir();
+    const QString installed = dataDir.filePath(QStringLiteral("shotcut/resources/models/std.rnnn"));
+    if (QFileInfo::exists(installed))
+        return installed;
+
+    const QStringList candidates = {
+        QDir(QCoreApplication::applicationDirPath())
+            .absoluteFilePath(QStringLiteral("../../../../testdata/models/std.rnnn")),
+        QDir(QCoreApplication::applicationDirPath())
+            .absoluteFilePath(QStringLiteral("../../../Resources/shotcut/resources/models/std.rnnn")),
+        QDir(QCoreApplication::applicationDirPath())
+            .absoluteFilePath(QStringLiteral("../Resources/shotcut/resources/models/std.rnnn")),
+    };
+    for (const QString &repoModel : candidates) {
+        if (QFileInfo::exists(repoModel))
+            return QFileInfo(repoModel).canonicalFilePath();
+    }
+
+    return QString();
+}
+
+bool configureArnndnFilter(Mlt::Filter &filter, double amount)
+{
+    const QString modelPath = resolveArnndnModelPath();
+    if (modelPath.isEmpty())
+        return false;
+    filter.set("av.model", modelPath.toUtf8().constData());
+    filter.set("av.mix", amount);
+    return true;
+}
+
+Mlt::Link *findTimeremapLink(Mlt::Producer &producer)
+{
+    Mlt::Link *link = MLT.getLink(QStringLiteral("speedForward"), &producer);
+    if (!link)
+        link = MLT.getLink(QStringLiteral("timeremap"), &producer);
+    return link;
+}
+
+Mlt::Link *ensureTimeremapLink(Mlt::Producer &producer)
+{
+    if (producer.type() != mlt_service_chain_type)
+        return nullptr;
+
+    if (Mlt::Link *existing = findTimeremapLink(producer)) {
+        syncLinkInOut(existing, &producer);
+        return existing;
+    }
+
+    Mlt::Chain chain(producer);
+    Mlt::Link link("timeremap");
+    if (!link.is_valid())
+        return nullptr;
+    link.set_profile(MLT.profile());
+    link.set(kShotcutFilterProperty, "speedForward");
+    link.set("image_mode", "nearest");
+    link.set("pitch", 0);
+    syncLinkInOut(&link, &producer);
+    chain.attach(link);
+    chain.move_link(chain.link_count() - 1, normalizerLinkCount(chain));
+    if (Mlt::Link *created = findTimeremapLink(producer))
+        syncLinkInOut(created, &producer);
+    return findTimeremapLink(producer);
+}
+
+void clearSpeedMap(Mlt::Link &link)
+{
+    Mlt::Animation animation = link.get_animation("speed_map");
+    if (animation.is_valid()) {
+        while (animation.key_count() > 0)
+            animation.remove(animation.key_get_frame(0));
+    }
+    link.Mlt::Properties::clear("speed_map");
+}
+
+struct SpeedKeyframeWrite {
+    int frame{0};
+    double speed{1.0};
+    mlt_keyframe_type type{mlt_keyframe_linear};
+};
+
+void writeSpeedCurve(Mlt::Link &link,
+                     int duration,
+                     const QVector<SpeedKeyframeWrite> &keyframes,
+                     bool pitchCompensation)
+{
+    clearSpeedMap(link);
+    const int lastFrame = qMax(0, duration - 1);
+    bool hasStart = false;
+    bool hasEnd = false;
+    double firstSpeed = 1.0;
+    double lastSpeed = 1.0;
+
+    for (int i = 0; i < keyframes.size(); ++i) {
+        const SpeedKeyframeWrite &kf = keyframes.at(i);
+        const int frame = qBound(0, kf.frame, lastFrame);
+        link.anim_set("speed_map", kf.speed, frame, 0, kf.type);
+        if (i == 0)
+            firstSpeed = kf.speed;
+        lastSpeed = kf.speed;
+        if (frame == 0)
+            hasStart = true;
+        if (frame == lastFrame)
+            hasEnd = true;
+    }
+
+    if (!keyframes.isEmpty()) {
+        const mlt_keyframe_type endpointType = keyframes.first().type;
+        if (!hasStart)
+            link.anim_set("speed_map", firstSpeed, 0, 0, endpointType);
+        if (!hasEnd && lastFrame > 0)
+            link.anim_set("speed_map", lastSpeed, lastFrame, 0, endpointType);
+    }
+
+    link.set("pitch", pitchCompensation ? 1 : 0);
+}
+
+EditorResult validateEditableClip(MultitrackModel *model, int trackIndex, int clipIndex)
+{
+    const EditorResult valid = failureIfInvalidClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    const QModelIndex clipModelIndex = model->makeIndex(trackIndex, clipIndex);
+    if (model->data(clipModelIndex, MultitrackModel::IsTransitionRole).toBool())
+        return EditorResult::failure(QStringLiteral("cannot modify a transition clip"));
+    if (model->data(clipModelIndex, MultitrackModel::IsBlankRole).toBool())
+        return EditorResult::failure(QStringLiteral("cannot modify a blank clip"));
+    return EditorResult::success();
 }
 
 } // namespace
@@ -1071,5 +1270,390 @@ EditorResult EditorService::importCaptionsFile(const QString &srtPath,
     data.insert(QStringLiteral("path"), srtPath);
     data.insert(QStringLiteral("trackName"), name);
     data.insert(QStringLiteral("burnInApplied"), true);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::applyAudioDenoise(int trackIndex, int clipIndex, double amount)
+{
+    MultitrackModel *model = m_mainWindow->timelineDock()->model();
+    const EditorResult valid = validateEditableClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    amount = qBound(0.0, amount, 1.0);
+
+    Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);
+    if (!producer.is_valid())
+        return EditorResult::failure(QStringLiteral("invalid clip producer"));
+
+    QString service;
+    Mlt::Link rnnoiseProbe("rnnoise");
+    if (rnnoiseProbe.is_valid()) {
+        if (producer.type() != mlt_service_chain_type)
+            return EditorResult::failure(QStringLiteral("clip does not support audio links"));
+
+        QScopedPointer<Mlt::Link> existing(findAudioRnnoiseLink(producer));
+        if (existing && existing->is_valid()) {
+            syncLinkInOut(existing.data(), &producer);
+            existing->set("mix", amount);
+            MLT.refreshConsumer();
+        } else {
+            Mlt::Chain chain(producer);
+            Mlt::Link link("rnnoise");
+            link.set_profile(MLT.profile());
+            link.set(kShotcutFilterProperty, "audioRnnoiseLink");
+            syncLinkInOut(&link, &producer);
+            link.set("mix", amount);
+            chain.attach(link);
+            chain.move_link(chain.link_count() - 1, normalizerLinkCount(chain));
+            MLT.refreshConsumer();
+        }
+        service = QStringLiteral("rnnoise");
+    } else {
+        QScopedPointer<Mlt::Filter> existing(findAudioArnndnFilter(producer));
+        if (existing && existing->is_valid()) {
+            if (!configureArnndnFilter(*existing, amount))
+                return EditorResult::failure(
+                    QStringLiteral("arnndn model missing (expected shotcut/resources/models/std.rnnn)"));
+            syncFilterInOut(existing.data(), &producer);
+            MLT.refreshConsumer();
+        } else {
+            Mlt::Filter filter(MLT.profile(), "avfilter.arnndn");
+            if (!filter.is_valid())
+                return EditorResult::failure(
+                    QStringLiteral("avfilter.arnndn unavailable in this MLT/FFmpeg build"));
+            filter.set(kShotcutFilterProperty, "audioArnndnFallback");
+            if (!configureArnndnFilter(filter, amount))
+                return EditorResult::failure(
+                    QStringLiteral("arnndn model missing (expected shotcut/resources/models/std.rnnn)"));
+            syncFilterInOut(&filter, &producer);
+            producer.attach(filter);
+            MLT.refreshConsumer();
+        }
+        service = QStringLiteral("avfilter.arnndn");
+    }
+
+    QJsonObject data;
+    data.insert(QStringLiteral("trackIndex"), trackIndex);
+    data.insert(QStringLiteral("clipIndex"), clipIndex);
+    data.insert(QStringLiteral("service"), service);
+    data.insert(QStringLiteral("amount"), amount);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::getAudioDenoise(int trackIndex, int clipIndex)
+{
+    MultitrackModel *model = m_mainWindow->timelineDock()->model();
+    const EditorResult valid = failureIfInvalidClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);
+    QJsonObject data;
+    data.insert(QStringLiteral("trackIndex"), trackIndex);
+    data.insert(QStringLiteral("clipIndex"), clipIndex);
+
+    if (!producer.is_valid()) {
+        data.insert(QStringLiteral("present"), false);
+        data.insert(QStringLiteral("amount"), 0.0);
+        return EditorResult::success(data);
+    }
+
+    QScopedPointer<Mlt::Link> link(findAudioRnnoiseLink(producer));
+    if (link && link->is_valid()) {
+        data.insert(QStringLiteral("present"), true);
+        data.insert(QStringLiteral("amount"), link->get_double("mix"));
+        data.insert(QStringLiteral("service"), QStringLiteral("rnnoise"));
+        return EditorResult::success(data);
+    }
+
+    QScopedPointer<Mlt::Filter> filter(findAudioArnndnFilter(producer));
+    if (filter && filter->is_valid()) {
+        data.insert(QStringLiteral("present"), true);
+        data.insert(QStringLiteral("amount"), filter->get_double("av.mix"));
+        data.insert(QStringLiteral("service"), QStringLiteral("avfilter.arnndn"));
+        return EditorResult::success(data);
+    }
+
+    data.insert(QStringLiteral("present"), false);
+    data.insert(QStringLiteral("amount"), 0.0);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::removeAudioDenoise(int trackIndex, int clipIndex)
+{
+    MultitrackModel *model = m_mainWindow->timelineDock()->model();
+    const EditorResult valid = failureIfInvalidClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);
+    if (!producer.is_valid())
+        return EditorResult::failure(QStringLiteral("audio denoise not present"));
+
+    QScopedPointer<Mlt::Link> link(findAudioRnnoiseLink(producer));
+    if (link && link->is_valid()) {
+        if (producer.type() != mlt_service_chain_type)
+            return EditorResult::failure(QStringLiteral("audio denoise not present"));
+        Mlt::Chain chain(producer);
+        chain.detach(*link);
+        MLT.refreshConsumer();
+    } else {
+        QScopedPointer<Mlt::Filter> filter(findAudioArnndnFilter(producer));
+        if (!filter || !filter->is_valid())
+            return EditorResult::failure(QStringLiteral("audio denoise not present"));
+        producer.detach(*filter);
+        MLT.refreshConsumer();
+    }
+
+    QJsonObject data;
+    data.insert(QStringLiteral("trackIndex"), trackIndex);
+    data.insert(QStringLiteral("clipIndex"), clipIndex);
+    data.insert(QStringLiteral("removed"), true);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::listSpeedPresets()
+{
+    QJsonArray presets;
+    for (const SpeedPreset &preset : SpeedPresets::all())
+        presets.append(SpeedPresets::toJson(preset));
+    QJsonObject data;
+    data.insert(QStringLiteral("presets"), presets);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::applySpeedPreset(int trackIndex,
+                                             int clipIndex,
+                                             const QString &presetId,
+                                             bool pitchCompensation)
+{
+    const SpeedPreset *preset = SpeedPresets::find(presetId);
+    if (!preset)
+        return EditorResult::failure(QStringLiteral("unknown preset: %1").arg(presetId));
+
+    MultitrackModel *model = m_mainWindow->timelineDock()->model();
+    const EditorResult valid = validateEditableClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    const QModelIndex clipModelIndex = model->makeIndex(trackIndex, clipIndex);
+    const int duration = model->data(clipModelIndex, MultitrackModel::DurationRole).toInt();
+    if (duration <= 0)
+        return EditorResult::failure(QStringLiteral("clip has no duration"));
+
+    Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);
+    if (!producer.is_valid())
+        return EditorResult::failure(QStringLiteral("invalid clip producer"));
+    if (producer.type() != mlt_service_chain_type)
+        return EditorResult::failure(QStringLiteral("clip does not support speed links"));
+
+    QScopedPointer<Mlt::Link> link(ensureTimeremapLink(producer));
+    if (!link || !link->is_valid())
+        return EditorResult::failure(QStringLiteral("timeremap link unavailable in this MLT build"));
+
+    const mlt_keyframe_type type = interpolationFromString(preset->interpolation);
+    const int lastFrame = qMax(0, duration - 1);
+    QVector<SpeedKeyframeWrite> writes;
+    writes.reserve(preset->keyframes.size());
+    for (const SpeedKeyframe &kf : preset->keyframes) {
+        SpeedKeyframeWrite write;
+        write.frame = qRound(qBound(0.0, kf.position, 1.0) * lastFrame);
+        write.speed = kf.speed;
+        write.type = type;
+        writes.append(write);
+    }
+    writeSpeedCurve(*link, duration, writes, pitchCompensation);
+    MLT.refreshConsumer();
+
+    QJsonObject data;
+    data.insert(QStringLiteral("trackIndex"), trackIndex);
+    data.insert(QStringLiteral("clipIndex"), clipIndex);
+    data.insert(QStringLiteral("presetId"), presetId);
+    data.insert(QStringLiteral("pitchCompensation"), pitchCompensation);
+    data.insert(QStringLiteral("duration"), duration);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::applyConstantSpeed(int trackIndex,
+                                               int clipIndex,
+                                               double speed,
+                                               bool pitchCompensation)
+{
+    if (speed <= 0.0)
+        return EditorResult::failure(QStringLiteral("speed must be greater than 0"));
+    speed = qMin(speed, 10.0);
+
+    MultitrackModel *model = m_mainWindow->timelineDock()->model();
+    const EditorResult valid = validateEditableClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    const QModelIndex clipModelIndex = model->makeIndex(trackIndex, clipIndex);
+    const int duration = model->data(clipModelIndex, MultitrackModel::DurationRole).toInt();
+    if (duration <= 0)
+        return EditorResult::failure(QStringLiteral("clip has no duration"));
+
+    Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);
+    if (!producer.is_valid())
+        return EditorResult::failure(QStringLiteral("invalid clip producer"));
+    if (producer.type() != mlt_service_chain_type)
+        return EditorResult::failure(QStringLiteral("clip does not support speed links"));
+
+    QScopedPointer<Mlt::Link> link(ensureTimeremapLink(producer));
+    if (!link || !link->is_valid())
+        return EditorResult::failure(QStringLiteral("timeremap link unavailable in this MLT build"));
+
+    const int lastFrame = qMax(0, duration - 1);
+    QVector<SpeedKeyframeWrite> writes;
+    writes.append({0, speed, mlt_keyframe_linear});
+    if (lastFrame > 0)
+        writes.append({lastFrame, speed, mlt_keyframe_linear});
+    writeSpeedCurve(*link, duration, writes, pitchCompensation);
+    MLT.refreshConsumer();
+
+    QJsonObject data;
+    data.insert(QStringLiteral("trackIndex"), trackIndex);
+    data.insert(QStringLiteral("clipIndex"), clipIndex);
+    data.insert(QStringLiteral("speed"), speed);
+    data.insert(QStringLiteral("pitchCompensation"), pitchCompensation);
+    data.insert(QStringLiteral("duration"), duration);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::setSpeedKeyframes(int trackIndex,
+                                              int clipIndex,
+                                              const QJsonArray &keyframes,
+                                              bool pitchCompensation)
+{
+    if (keyframes.isEmpty())
+        return EditorResult::failure(QStringLiteral("keyframes array is required"));
+
+    MultitrackModel *model = m_mainWindow->timelineDock()->model();
+    const EditorResult valid = validateEditableClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    const QModelIndex clipModelIndex = model->makeIndex(trackIndex, clipIndex);
+    const int duration = model->data(clipModelIndex, MultitrackModel::DurationRole).toInt();
+    if (duration <= 0)
+        return EditorResult::failure(QStringLiteral("clip has no duration"));
+
+    Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);
+    if (!producer.is_valid())
+        return EditorResult::failure(QStringLiteral("invalid clip producer"));
+    if (producer.type() != mlt_service_chain_type)
+        return EditorResult::failure(QStringLiteral("clip does not support speed links"));
+
+    QScopedPointer<Mlt::Link> link(ensureTimeremapLink(producer));
+    if (!link || !link->is_valid())
+        return EditorResult::failure(QStringLiteral("timeremap link unavailable in this MLT build"));
+
+    const int lastFrame = qMax(0, duration - 1);
+    QVector<SpeedKeyframeWrite> writes;
+    writes.reserve(keyframes.size());
+    for (const QJsonValue &value : keyframes) {
+        if (!value.isObject())
+            return EditorResult::failure(QStringLiteral("each keyframe must be an object"));
+        const QJsonObject object = value.toObject();
+        if (!object.contains(QStringLiteral("speed")))
+            return EditorResult::failure(QStringLiteral("keyframe speed is required"));
+
+        SpeedKeyframeWrite write;
+        write.speed = object.value(QStringLiteral("speed")).toDouble();
+        write.type = interpolationFromString(
+            object.value(QStringLiteral("interpolation")).toString(QStringLiteral("linear")));
+
+        if (object.contains(QStringLiteral("frame"))) {
+            write.frame = object.value(QStringLiteral("frame")).toInt();
+        } else if (object.contains(QStringLiteral("position"))) {
+            write.frame = qRound(qBound(0.0, object.value(QStringLiteral("position")).toDouble(), 1.0)
+                                 * lastFrame);
+        } else {
+            return EditorResult::failure(QStringLiteral("keyframe requires position or frame"));
+        }
+        write.frame = qBound(0, write.frame, lastFrame);
+        writes.append(write);
+    }
+
+    writeSpeedCurve(*link, duration, writes, pitchCompensation);
+    MLT.refreshConsumer();
+
+    QJsonObject data;
+    data.insert(QStringLiteral("trackIndex"), trackIndex);
+    data.insert(QStringLiteral("clipIndex"), clipIndex);
+    data.insert(QStringLiteral("keyframeCount"), writes.size());
+    data.insert(QStringLiteral("pitchCompensation"), pitchCompensation);
+    data.insert(QStringLiteral("duration"), duration);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::getSpeedCurve(int trackIndex, int clipIndex)
+{
+    MultitrackModel *model = m_mainWindow->timelineDock()->model();
+    const EditorResult valid = failureIfInvalidClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);
+    QJsonObject data;
+    data.insert(QStringLiteral("trackIndex"), trackIndex);
+    data.insert(QStringLiteral("clipIndex"), clipIndex);
+
+    if (!producer.is_valid() || producer.type() != mlt_service_chain_type) {
+        data.insert(QStringLiteral("present"), false);
+        return EditorResult::success(data);
+    }
+
+    QScopedPointer<Mlt::Link> link(findTimeremapLink(producer));
+    if (!link || !link->is_valid()) {
+        data.insert(QStringLiteral("present"), false);
+        return EditorResult::success(data);
+    }
+
+    data.insert(QStringLiteral("present"), true);
+    data.insert(QStringLiteral("image_mode"),
+                QString::fromUtf8(link->get("image_mode")));
+    data.insert(QStringLiteral("pitch"), link->get_int("pitch"));
+
+    QJsonArray keyframes;
+    Mlt::Animation animation = link->get_animation("speed_map");
+    if (animation.is_valid()) {
+        for (int i = 0; i < animation.key_count(); ++i) {
+            const int frame = animation.key_get_frame(i);
+            QJsonObject keyframe;
+            keyframe.insert(QStringLiteral("frame"), frame);
+            keyframe.insert(QStringLiteral("speed"),
+                            link->anim_get_double("speed_map", frame));
+            keyframes.append(keyframe);
+        }
+    }
+    data.insert(QStringLiteral("keyframes"), keyframes);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::removeSpeed(int trackIndex, int clipIndex)
+{
+    MultitrackModel *model = m_mainWindow->timelineDock()->model();
+    const EditorResult valid = failureIfInvalidClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);
+    if (!producer.is_valid() || producer.type() != mlt_service_chain_type)
+        return EditorResult::failure(QStringLiteral("speed curve not present"));
+
+    Mlt::Chain chain(producer);
+    QScopedPointer<Mlt::Link> link(findTimeremapLink(producer));
+    if (!link || !link->is_valid())
+        return EditorResult::failure(QStringLiteral("speed curve not present"));
+
+    chain.detach(*link);
+    MLT.refreshConsumer();
+
+    QJsonObject data;
+    data.insert(QStringLiteral("trackIndex"), trackIndex);
+    data.insert(QStringLiteral("clipIndex"), clipIndex);
+    data.insert(QStringLiteral("removed"), true);
     return EditorResult::success(data);
 }

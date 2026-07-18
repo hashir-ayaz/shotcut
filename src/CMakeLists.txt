@@ -115,8 +115,11 @@ add_executable(shotcut WIN32 MACOSX_BUNDLE
   services/editorservice.cpp services/editorservice.h
   services/editortypes.h
   services/animationpresets.cpp services/animationpresets.h
+  services/speedpresets.cpp services/speedpresets.h
   services/transitionpresets.cpp services/transitionpresets.h
   docks/animationsdock.cpp docks/animationsdock.h
+  docks/audiodock.cpp docks/audiodock.h
+  docks/speeddock.cpp docks/speeddock.h
   docks/transitionsdock.cpp docks/transitionsdock.h
   qmltypes/colordialog.h qmltypes/colordialog.cpp
   qmltypes/colorpickeritem.cpp qmltypes/colorpickeritem.h
@@ -403,6 +406,7 @@ if(APPLE)
   install(DIRECTORY qml DESTINATION ${CMAKE_INSTALL_PREFIX}/Shotcut.app/Contents/Resources/shotcut/)
   install(DIRECTORY ${CMAKE_SOURCE_DIR}/filter-sets DESTINATION ${CMAKE_INSTALL_PREFIX}/Shotcut.app/Contents/Resources/shotcut/)
   install(DIRECTORY ${CMAKE_SOURCE_DIR}/voices DESTINATION ${CMAKE_INSTALL_PREFIX}/Shotcut.app/Contents/Resources/shotcut/)
+  install(DIRECTORY ${CMAKE_SOURCE_DIR}/src/resources DESTINATION ${CMAKE_INSTALL_PREFIX}/Shotcut.app/Contents/Resources/shotcut/)
   install(DIRECTORY ${CMAKE_SOURCE_DIR}/elements DESTINATION ${CMAKE_INSTALL_PREFIX}/Shotcut.app/Contents/Resources/shotcut/)
 endif()
 
