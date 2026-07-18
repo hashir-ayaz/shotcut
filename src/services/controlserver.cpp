@@ -154,6 +154,18 @@ EditorResult ControlServer::dispatchMethod(const QString &method, const QJsonObj
                                                 append);
     }
 
+    if (method == QStringLiteral("list_animation_presets"))
+        return m_editorService->listAnimationPresets();
+
+    if (method == QStringLiteral("apply_clip_animation")) {
+        return m_editorService->applyClipAnimation(
+            params.value(QStringLiteral("trackIndex")).toInt(),
+            params.value(QStringLiteral("clipIndex")).toInt(),
+            params.value(QStringLiteral("presetId")).toString(),
+            params.value(QStringLiteral("durationFrames")).toInt(),
+            params.value(QStringLiteral("mode")).toString());
+    }
+
     if (method == QStringLiteral("list_transition_presets"))
         return m_editorService->listTransitionPresets();
 

@@ -34,6 +34,13 @@ public:
                                                int outPoint = -1,
                                                bool append = false);
 
+    Q_INVOKABLE EditorResult listAnimationPresets();
+    Q_INVOKABLE EditorResult applyClipAnimation(int trackIndex,
+                                                int clipIndex,
+                                                const QString &presetId,
+                                                int durationFrames,
+                                                const QString &mode);
+
     Q_INVOKABLE EditorResult listTransitionPresets();
     Q_INVOKABLE EditorResult applyTransition(int trackIndex,
                                              int clipIndex,

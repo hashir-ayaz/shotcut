@@ -62,6 +62,7 @@ class HdrPreviewWindow;
 class EditorService;
 class ControlServer;
 class TransitionsDock;
+class AnimationsDock;
 
 class MainWindow : public QMainWindow
 {
@@ -233,6 +234,7 @@ private:
     NotesDock *m_notesDock;
     SubtitlesDock *m_subtitlesDock;
     TransitionsDock *m_transitionsDock{nullptr};
+    AnimationsDock *m_animationsDock{nullptr};
     std::unique_ptr<QWidget> m_producerWidget;
     FilesDock *m_filesDock;
     ElementsDock *m_elementsDock;

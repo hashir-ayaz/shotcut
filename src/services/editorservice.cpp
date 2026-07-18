@@ -27,6 +27,7 @@
 #include "models/subtitlesmodel.h"
 #include "qmltypes/qmlfilter.h"
 #include "qmltypes/qmlmetadata.h"
+#include "services/animationpresets.h"
 #include "services/transitionpresets.h"
 #include "settings.h"
 #include "shotcut_mlt_properties.h"
@@ -135,10 +136,33 @@ Mlt::Filter *findShotcutFilter(Mlt::Producer *producer, const QString &filterId)
     return nullptr;
 }
 
+void clearPropertyKeyframes(QmlFilter &qmlFilter, const QString &propertyName)
+{
+    Mlt::Animation animation = qmlFilter.getAnimation(propertyName);
+    if (animation.is_valid()) {
+        while (animation.key_count() > 0)
+            animation.remove(animation.key_get_frame(0));
+    }
+    qmlFilter.resetProperty(propertyName);
+}
+
+void syncFilterInOut(Mlt::Filter *filter, Mlt::Producer *producer)
+{
+    if (!filter || !filter->is_valid() || !producer || !producer->is_valid())
+        return;
+    const int in = producer->get(kFilterInProperty) ? producer->get_int(kFilterInProperty)
+                                                    : producer->get_in();
+    const int out = producer->get(kFilterOutProperty) ? producer->get_int(kFilterOutProperty)
+                                                      : producer->get_out();
+    filter->set_in_and_out(in, out);
+}
+
 Mlt::Filter *ensureShotcutFilter(Mlt::Producer *producer, const QString &filterId)
 {
-    if (Mlt::Filter *existing = findShotcutFilter(producer, filterId))
+    if (Mlt::Filter *existing = findShotcutFilter(producer, filterId)) {
+        syncFilterInOut(existing, producer);
         return existing;
+    }
 
     QmlMetadata *metadata = MAIN.filterController()->metadata(filterId);
     if (!metadata)
@@ -146,6 +170,22 @@ Mlt::Filter *ensureShotcutFilter(Mlt::Producer *producer, const QString &filterI
 
     Mlt::Filter filter(MLT.profile(), metadata->mlt_service().toUtf8().constData());
     filter.set(kShotcutFilterProperty, filterId.toUtf8().constData());
+    // Match AttachedFiltersModel: keyframes are clip-relative only when filter in/out
+    // match the cut. Without this, out-point clips hold the last keyframe forever
+    // (e.g. opacity 0 → black for the whole shot).
+    syncFilterInOut(&filter, producer);
+    if (filterId == QStringLiteral("brightnessOpacity")) {
+        filter.set("level", 1.0);
+        filter.set("alpha", 1.0);
+        filter.set("opacity", 1.0);
+    } else if (filterId == QStringLiteral("affineSizePosition")) {
+        // Match Size Position defaults so rect keyframes behave like CapCut slides/zooms.
+        filter.set("transition.fill", 1);
+        filter.set("transition.distort", 0);
+        filter.set("transition.valign", "middle");
+        filter.set("transition.halign", "center");
+        filter.set("background", "color:#00000000");
+    }
     producer->attach(filter);
     return findShotcutFilter(producer, filterId);
 }
@@ -182,6 +222,27 @@ EditorResult failureIfInvalidClip(MultitrackModel *model, int trackIndex, int cl
     if (clipIndex < 0 || clipIndex >= MAIN.timelineDock()->clipCount(trackIndex))
         return EditorResult::failure(QStringLiteral("invalid clipIndex"));
     return EditorResult::success();
+}
+
+double keyframeValueForProperty(QmlFilter &qmlFilter,
+                                const QString &propertyId,
+                                const QString &param,
+                                int keyFrame)
+{
+    if (propertyId == QStringLiteral("opacity") || propertyId == QStringLiteral("rotation"))
+        return qmlFilter.getDouble(param, keyFrame);
+
+    const QRectF rect = qmlFilter.getRect(param, keyFrame);
+    if (propertyId == QStringLiteral("scale")) {
+        if (rect.isNull() || MLT.profile().width() == 0)
+            return 1.0;
+        return rect.width() / MLT.profile().width();
+    }
+    if (propertyId == QStringLiteral("position.x"))
+        return rect.x();
+    if (propertyId == QStringLiteral("position.y"))
+        return rect.y();
+    return qmlFilter.getDouble(param, keyFrame);
 }
 
 } // namespace
@@ -375,6 +436,143 @@ EditorResult EditorService::addClipToTimeline(const QString &path,
     return EditorResult::success(data);
 }
 
+EditorResult EditorService::listAnimationPresets()
+{
+    QJsonArray presets;
+    for (const AnimationPreset &preset : AnimationPresets::all())
+        presets.append(AnimationPresets::toJson(preset));
+    QJsonObject data;
+    data.insert(QStringLiteral("presets"), presets);
+    return EditorResult::success(data);
+}
+
+EditorResult EditorService::applyClipAnimation(int trackIndex,
+                                               int clipIndex,
+                                               const QString &presetId,
+                                               int durationFrames,
+                                               const QString &mode)
+{
+    const AnimationPreset *preset = AnimationPresets::find(presetId);
+    if (!preset)
+        return EditorResult::failure(QStringLiteral("unknown preset: %1").arg(presetId));
+    if (durationFrames <= 0)
+        return EditorResult::failure(QStringLiteral("durationFrames must be positive"));
+
+    const QString normalizedMode = mode.trimmed().toLower();
+    if (normalizedMode != QStringLiteral("in") && normalizedMode != QStringLiteral("out")
+        && normalizedMode != QStringLiteral("combo")) {
+        return EditorResult::failure(QStringLiteral("mode must be in, out, or combo"));
+    }
+
+    MultitrackModel *model = m_mainWindow->timelineDock()->model();
+    const EditorResult valid = failureIfInvalidClip(model, trackIndex, clipIndex);
+    if (!valid.ok)
+        return valid;
+
+    const QModelIndex clipModelIndex = model->makeIndex(trackIndex, clipIndex);
+    if (model->data(clipModelIndex, MultitrackModel::IsTransitionRole).toBool())
+        return EditorResult::failure(QStringLiteral("cannot apply animation to a transition clip"));
+
+    const int clipDuration = model->data(clipModelIndex, MultitrackModel::DurationRole).toInt();
+    if (clipDuration <= 0)
+        return EditorResult::failure(QStringLiteral("clip has no duration"));
+
+    int effectiveDuration = durationFrames;
+    if (normalizedMode == QStringLiteral("combo") && clipDuration < 2 * durationFrames)
+        effectiveDuration = clipDuration / 2;
+    else if (effectiveDuration > clipDuration)
+        effectiveDuration = clipDuration;
+
+    if (effectiveDuration <= 0)
+        return EditorResult::failure(QStringLiteral("clip is too short for animation"));
+
+    const int profileWidth = MLT.profile().width();
+    const int profileHeight = MLT.profile().height();
+    const QString interpolation = QStringLiteral("linear");
+    QStringList appliedProperties;
+
+    // Clear prior keyframes on properties this preset will touch so leftover
+    // keys (wrong timebase / previous demos) cannot leave opacity stuck at 0.
+    {
+        Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);
+        if (producer.is_valid()) {
+            for (const QString &propertyId : preset->properties) {
+                const QString filterId = filterIdForProperty(propertyId);
+                Mlt::Filter *filter = ensureShotcutFilter(&producer, filterId);
+                if (!filter)
+                    continue;
+                QmlMetadata *metadata = MAIN.filterController()->metadata(filterId);
+                QmlFilter qmlFilter(*filter, metadata);
+                if (propertyId == QStringLiteral("opacity")) {
+                    clearPropertyKeyframes(qmlFilter, QStringLiteral("alpha"));
+                    clearPropertyKeyframes(qmlFilter, QStringLiteral("opacity"));
+                    qmlFilter.set(QStringLiteral("level"), 1.0);
+                    qmlFilter.set(QStringLiteral("alpha"), 1.0);
+                    qmlFilter.set(QStringLiteral("opacity"), 1.0);
+                } else if (propertyId == QStringLiteral("rotation")) {
+                    clearPropertyKeyframes(qmlFilter, QStringLiteral("transition.fix_rotate_x"));
+                } else {
+                    clearPropertyKeyframes(qmlFilter, QStringLiteral("transition.rect"));
+                }
+                delete filter;
+            }
+        }
+    }
+
+    auto applyWindow = [&](bool isIn) {
+        const QVector<AnimationKeyframeSpec> specs = AnimationPresets::keyframeSpecsFor(*preset,
+                                                                                        isIn,
+                                                                                        profileWidth,
+                                                                                        profileHeight);
+        const int startFrame = isIn ? 0 : clipDuration - effectiveDuration;
+        const int endFrame = isIn ? effectiveDuration : clipDuration - 1;
+        for (const AnimationKeyframeSpec &spec : specs) {
+            const EditorResult startResult = addKeyframe(trackIndex,
+                                                         clipIndex,
+                                                         spec.propertyId,
+                                                         startFrame,
+                                                         spec.startValue,
+                                                         interpolation);
+            if (!startResult.ok)
+                return startResult;
+            const EditorResult endResult = addKeyframe(trackIndex,
+                                                       clipIndex,
+                                                       spec.propertyId,
+                                                       endFrame,
+                                                       spec.endValue,
+                                                       interpolation);
+            if (!endResult.ok)
+                return endResult;
+            if (!appliedProperties.contains(spec.propertyId))
+                appliedProperties.append(spec.propertyId);
+        }
+        return EditorResult::success();
+    };
+
+    if (normalizedMode == QStringLiteral("in") || normalizedMode == QStringLiteral("combo")) {
+        const EditorResult inResult = applyWindow(true);
+        if (!inResult.ok)
+            return inResult;
+    }
+    if (normalizedMode == QStringLiteral("out") || normalizedMode == QStringLiteral("combo")) {
+        const EditorResult outResult = applyWindow(false);
+        if (!outResult.ok)
+            return outResult;
+    }
+
+    QJsonObject data;
+    data.insert(QStringLiteral("presetId"), presetId);
+    data.insert(QStringLiteral("mode"), normalizedMode);
+    data.insert(QStringLiteral("durationFrames"), effectiveDuration);
+    data.insert(QStringLiteral("trackIndex"), trackIndex);
+    data.insert(QStringLiteral("clipIndex"), clipIndex);
+    QJsonArray properties;
+    for (const QString &property : appliedProperties)
+        properties.append(property);
+    data.insert(QStringLiteral("appliedProperties"), properties);
+    return EditorResult::success(data);
+}
+
 EditorResult EditorService::listTransitionPresets()
 {
     QJsonArray presets;
@@ -538,37 +736,55 @@ EditorResult EditorService::addKeyframe(int trackIndex,
     const mlt_keyframe_type keyframeType = interpolationFromString(interpolation);
 
     if (propertyId == QStringLiteral("opacity")) {
+        // Opacity filter gangs alpha + opacity (see brightnessOpacity meta.qml).
         qmlFilter.set(QStringLiteral("alpha"), value, frame, keyframeType);
+        qmlFilter.set(QStringLiteral("opacity"), value, frame, keyframeType);
     } else if (propertyId == QStringLiteral("rotation")) {
         qmlFilter.set(QStringLiteral("transition.fix_rotate_x"), value, frame, keyframeType);
-    } else if (propertyId == QStringLiteral("scale")) {
-        QRectF rect = qmlFilter.getRect(QStringLiteral("transition.rect"));
-        if (rect.isNull()) {
-            rect = QRectF(0, 0, MLT.profile().width(), MLT.profile().height());
+    } else if (propertyId == QStringLiteral("scale")
+               || propertyId == QStringLiteral("position.x")
+               || propertyId == QStringLiteral("position.y")) {
+        // Always build an explicit rect. Reading getRect() with no frame uses the
+        // playhead / stale animation center, which drifts zooms into the corner and
+        // leaves slides stuck half off-screen (x=-960 with full size, etc.).
+        const double profileW = MLT.profile().width();
+        const double profileH = MLT.profile().height();
+        QRectF rect = qmlFilter.getRect(QStringLiteral("transition.rect"), frame);
+        if (rect.isNull() || rect.width() <= 0.0 || rect.height() <= 0.0)
+            rect = QRectF(0, 0, profileW, profileH);
+
+        double scale = rect.width() / profileW;
+        if (scale <= 0.0)
+            scale = 1.0;
+        double x = rect.x();
+        double y = rect.y();
+
+        if (propertyId == QStringLiteral("scale")) {
+            scale = value;
+            // CapCut-style zoom: keep the scaled frame centered on the profile.
+            x = (profileW - profileW * scale) / 2.0;
+            y = (profileH - profileH * scale) / 2.0;
+        } else if (propertyId == QStringLiteral("position.x")) {
+            x = value;
+            // Position slides keep full-frame size unless scale was already animated.
+            if (qFuzzyCompare(scale, 1.0)) {
+                y = 0.0;
+            }
+        } else { // position.y
+            y = value;
+            if (qFuzzyCompare(scale, 1.0)) {
+                x = 0.0;
+            }
         }
-        const double centerX = rect.x() + rect.width() / 2.0;
-        const double centerY = rect.y() + rect.height() / 2.0;
-        const double width = MLT.profile().width() * value;
-        const double height = MLT.profile().height() * value;
+
         qmlFilter.set(QStringLiteral("transition.rect"),
-                      centerX - width / 2.0,
-                      centerY - height / 2.0,
-                      width,
-                      height,
+                      x,
+                      y,
+                      profileW * scale,
+                      profileH * scale,
                       1.0,
                       frame,
                       keyframeType);
-    } else if (propertyId == QStringLiteral("position.x")
-               || propertyId == QStringLiteral("position.y")) {
-        QRectF rect = qmlFilter.getRect(QStringLiteral("transition.rect"));
-        if (rect.isNull()) {
-            rect = QRectF(0, 0, MLT.profile().width(), MLT.profile().height());
-        }
-        if (propertyId == QStringLiteral("position.x"))
-            rect.moveLeft(value);
-        else
-            rect.moveTop(value);
-        qmlFilter.set(QStringLiteral("transition.rect"), rect, frame, keyframeType);
     } else {
         delete filter;
         return EditorResult::failure(QStringLiteral("unknown propertyId"));
@@ -656,7 +872,8 @@ EditorResult EditorService::listKeyframes(int trackIndex,
             const int keyFrame = animation.key_get_frame(i);
             QJsonObject keyframe;
             keyframe.insert(QStringLiteral("frame"), keyFrame);
-            keyframe.insert(QStringLiteral("value"), qmlFilter.getDouble(param, keyFrame));
+            keyframe.insert(QStringLiteral("value"),
+                            keyframeValueForProperty(qmlFilter, propertyId, param, keyFrame));
             keyframes.append(keyframe);
         }
     }

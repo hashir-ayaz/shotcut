@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 
 import { ShotcutClient } from "./shotcutClient.js";
+import { registerAnimationTools } from "./tools/animations.js";
 import { registerCaptionTools } from "./tools/captions.js";
 import { registerKeyframeTools } from "./tools/keyframes.js";
 import { registerTransitionTools } from "./tools/transitions.js";
@@ -113,9 +114,10 @@ server.registerTool(
 );
 
 registerTransitionTools(server, client);
+registerAnimationTools(server, client);
 registerKeyframeTools(server, client);
 registerCaptionTools(server, client);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error("mcp-shotcut running on stdio");
+// Intentionally silent after connect: Cursor marks any stderr as [error].

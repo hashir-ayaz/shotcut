@@ -114,7 +114,9 @@ add_executable(shotcut WIN32 MACOSX_BUNDLE
   services/controlserver.cpp services/controlserver.h
   services/editorservice.cpp services/editorservice.h
   services/editortypes.h
+  services/animationpresets.cpp services/animationpresets.h
   services/transitionpresets.cpp services/transitionpresets.h
+  docks/animationsdock.cpp docks/animationsdock.h
   docks/transitionsdock.cpp docks/transitionsdock.h
   qmltypes/colordialog.h qmltypes/colordialog.cpp
   qmltypes/colorpickeritem.cpp qmltypes/colorpickeritem.h

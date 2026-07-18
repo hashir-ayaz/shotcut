@@ -461,9 +461,10 @@ EditorResult applyTextTemplate(const QString &templateId, const QString &text, i
 
 ### Task 2.4 (stretch): Clip animation presets
 
-Only if P0 complete with evidence.
-
-**EditorService:** `listAnimationPresets()`, `applyClipAnimation(track, clip, presetId, durationFrames, mode: in|out|combo)`.
+- [x] **EditorService:** `listAnimationPresets()`, `applyClipAnimation(track, clip, presetId, durationFrames, mode: in|out|combo)`.
+- [x] **ControlServer + MCP:** `list_animation_presets`, `apply_clip_animation`.
+- [x] **UI:** Animations dock (View menu, Ctrl+Shift+7).
+- [x] **Trajectory:** `docs/agent-trajectories/04-clip-animations.md`.
 
 Implement as presets that set filter + keyframe patterns via the same keyframe APIs (no parallel animation engine).
 
@@ -580,7 +581,7 @@ Logs: `~/Library/Application Support/Meltytech/Shotcut/shotcut-log.txt`
 - [x] **Phase 2.1** — Transitions (API → UI → MCP → evidence)
 - [x] **Phase 2.2** — Keyframes (API → UI → MCP → evidence)
 - [x] **Phase 2.3** — Captions (API → UI → MCP → evidence)
-- [ ] **Phase 2.4** — Stretch animations only if time
+- [x] **Phase 2.4** — Clip animation presets (stretch)
 - [ ] **Phase 3** — Writeup + submission polish
 
 ---

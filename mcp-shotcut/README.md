@@ -58,6 +58,8 @@ Restart the MCP server in Cursor after pulling Phase 2 changes so new tools appe
 | `shotcut_set_transition_duration` | `set_transition_duration` |
 | `shotcut_get_transition` | `get_transition` |
 | `shotcut_remove_transition` | `remove_transition` |
+| `shotcut_list_animation_presets` | `list_animation_presets` |
+| `shotcut_apply_clip_animation` | `apply_clip_animation` |
 | `shotcut_list_animatable_properties` | `list_animatable_properties` |
 | `shotcut_add_keyframe` | `add_keyframe` |
 | `shotcut_remove_keyframe` | `remove_keyframe` |
@@ -76,5 +78,5 @@ All business logic lives in Shotcut's C++ `EditorService`. This package is a thi
 | CapCut ref | Feature | Status |
 |------------|---------|--------|
 | #2 | Speed curve | Out of scope |
-| #4 | Clip animations | Stretch only |
+| #4 | Clip animations | Shipped (6 presets, In/Out/Combo) |
 | #6 | Denoise & stem separation | Out of scope |
