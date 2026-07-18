@@ -29,7 +29,9 @@ Prioritized for existing Shotcut seams + CapCut demo impact + export-visible res
 | **P0** | Keyframes (position, scale, rotation, opacity) | KeyframesDock / KeyframesModel / `QmlFilter` already strong — expose via Editor API + CapCut-style gaps |
 | **P0** | Captions (auto from audio) | Whisper job + SubtitlesDock exist — wire through Editor API + MCP |
 | Stretch | Clip animation presets (In/Out/Combo) | Thin presets on top of filters/keyframes if time |
-| Out of scope for v1 | Speed curve, stem separation | Higher MLT/ML cost; document as skipped |
+| P1 (now in scope) | Audio denoise (RNNoise) | Existing `rnnoise` MLT **link** — wrap in Editor API + MCP (Task 2.5) |
+| P1 (now in scope) | Speed curve presets | Existing `timeremap` **link** + `speed_map` keyframes — preset ramps (Task 2.6) |
+| Out of scope for v1 | Stem separation | External ML model (Demucs/Spleeter) — document as skipped |
 
 Be explicit in the writeup what is complete vs skipped.
 
@@ -470,6 +472,243 @@ Implement as presets that set filter + keyframe patterns via the same keyframe A
 
 ---
 
+### Task 2.5: Audio Denoise (P1 — now in scope)
+
+**Brief mapping:** Feature #6 (Audio ▸ Reduce noise). We ship the **denoise** half only. **Stem separation stays out of scope** (needs an external ML model — document as skipped in the writeup).
+
+**CapCut "done":** Apply noise reduction to a clip's audio; adjustable strength; audible on preview + export; readable/removable via inspect.
+
+> **CRITICAL — this is an MLT Link, not a filter.** The RNNoise denoiser is registered as `type: Metadata.Link` (see `src/qml/filters/audio_rnnoise_link/meta.qml`). Links attach to a **`Mlt::Chain`**, NOT via `producer->attach()` like the keyframe filters (`affineSizePosition`, `brightnessOpacity`). Copying the `ensureShotcutFilter()` path will silently fail. Use the Link/Chain path described below (mirrors `TimelineDock::freezeFrame()` at `src/docks/timelinedock.cpp:3686` and `AttachedFiltersModel::add()` case `QmlMetadata::Link` at `src/models/attachedfiltersmodel.cpp:526`).
+
+**RNNoise facts (confirmed in code):**
+- `mlt_service`: `rnnoise`
+- Shotcut `objectName` / unique id: `audioRnnoiseLink`
+- Single param: `mix` (double, `0.0`–`1.0`; UI shows 0–100%; default `1.0` = fully denoised). Set lower to blend original audio back in.
+- `isAudio: true`, no keyframes needed.
+
+**Files:**
+- Modify: `src/services/editorservice.h` / `.cpp` (new methods)
+- Modify: `src/services/controlserver.cpp` (RPC dispatch)
+- Create: `mcp-shotcut/src/tools/audio.ts` (new MCP tool group)
+- Modify: `mcp-shotcut/src/index.ts` (register the group)
+- Modify: `mcp-shotcut/README.md` (list new tools)
+- (Optional thin UI) Create: `src/docks/audiodock.cpp` / `.h`; modify `src/CMakeLists.txt`, `src/mainwindow.cpp` / `.h`
+- Leverage: `src/qml/filters/audio_rnnoise_link/*`, `MLT.getLink()` (`src/mltcontroller.cpp:1658`)
+
+**EditorService API (add to `editorservice.h`, implement in `.cpp`):**
+
+```cpp
+Q_INVOKABLE EditorResult applyAudioDenoise(int trackIndex, int clipIndex, double amount = 1.0);
+Q_INVOKABLE EditorResult getAudioDenoise(int trackIndex, int clipIndex);
+Q_INVOKABLE EditorResult removeAudioDenoise(int trackIndex, int clipIndex);
+```
+
+**Implementation notes (the correct Link path):**
+
+Add a small anonymous-namespace helper in `editorservice.cpp` (next to `findShotcutFilter`) that ensures a link on the clip's chain. Pattern:
+
+```cpp
+// Returns the number of leading "normalizer" links (_loader==1). New links must
+// be inserted AFTER these, mirroring AttachedFiltersModel / freezeFrame.
+int normalizerLinkCount(Mlt::Chain &chain) {
+    int count = 0;
+    for (int i = 0; i < chain.link_count(); ++i) {
+        QScopedPointer<Mlt::Link> link(chain.link(i));
+        if (link && link->is_valid() && link->get_int("_loader")) count++;
+        else break;
+    }
+    return count;
+}
+```
+
+`applyAudioDenoise`:
+1. Validate clip via `failureIfInvalidClip(model, trackIndex, clipIndex)` and reject transitions (`IsTransitionRole`).
+2. Clamp `amount` to `[0.0, 1.0]`.
+3. `Mlt::Producer producer = m_mainWindow->timelineDock()->producerForClip(trackIndex, clipIndex);` — this wraps the **live** timeline producer (mutations persist into the saved graph, same as `addKeyframe`).
+4. Guard: `if (producer.type() != mlt_service_chain_type) return EditorResult::failure("clip does not support audio links");` (timeline clips are chains in MLT 7; blanks/tractors are not).
+5. `Mlt::Chain chain(producer);`
+6. Reuse if present: `QScopedPointer<Mlt::Link> existing(MLT.getLink("audioRnnoiseLink", &producer));` (also try `"rnnoise"`). If found, `existing->set("mix", amount); MLT.refreshConsumer();` and return success.
+7. Otherwise create + attach + order:
+```cpp
+Mlt::Link link("rnnoise");
+if (!link.is_valid()) return EditorResult::failure("rnnoise link unavailable in this MLT build");
+link.set_profile(MLT.profile());
+link.set(kShotcutFilterProperty, "audioRnnoiseLink");
+link.set("mix", amount);
+chain.attach(link);
+chain.move_link(chain.link_count() - 1, normalizerLinkCount(chain));
+MLT.refreshConsumer();
+```
+8. Return `data`: `{ trackIndex, clipIndex, service:"rnnoise", amount }`.
+
+`getAudioDenoise`: find via `MLT.getLink("audioRnnoiseLink", &producer)` / `"rnnoise"`; return `{ present:bool, amount:double }` (read `link->get_double("mix")`).
+
+`removeAudioDenoise`: locate the link's mlt index in the chain (loop `chain.link_count()`, match `kShotcutFilterProperty=="audioRnnoiseLink"` or `mlt_service=="rnnoise"`), `chain.detach(*link)`, `MLT.refreshConsumer()`; error if not present.
+
+**Gotchas:**
+- Include `<MltChain.h>` and `<MltLink.h>` in `editorservice.cpp`.
+- Do NOT route this through `ensureShotcutFilter` / `producer->attach()` — that's the filter path and will not attach a link.
+- `#include "shotcut_mlt_properties.h"` is already present for `kShotcutFilterProperty`.
+- The mutation persists on save because `saveProject` serializes the tractor graph (the chain now contains the link). No extra undo command required for the MVP (matches `applyClipAnimation`, which also attaches directly without undo). If you want undo parity later, use `AttachedFiltersModel::add()`; not required for this task.
+
+**ControlServer dispatch (add to `dispatchMethod` in `controlserver.cpp`, same style as existing branches):**
+
+```cpp
+if (method == QStringLiteral("apply_audio_denoise"))
+    return m_editorService->applyAudioDenoise(
+        params.value("trackIndex").toInt(),
+        params.value("clipIndex").toInt(),
+        params.value("amount").toDouble(1.0));
+if (method == QStringLiteral("get_audio_denoise"))
+    return m_editorService->getAudioDenoise(params.value("trackIndex").toInt(),
+                                            params.value("clipIndex").toInt());
+if (method == QStringLiteral("remove_audio_denoise"))
+    return m_editorService->removeAudioDenoise(params.value("trackIndex").toInt(),
+                                               params.value("clipIndex").toInt());
+```
+
+**MCP tools (`mcp-shotcut/src/tools/audio.ts` — mirror `animations.ts` exactly):**
+- `shotcut_apply_audio_denoise` `{ trackIndex:int, clipIndex:int, amount?:number(0..1, default 1) }` → `apply_audio_denoise`
+- `shotcut_get_audio_denoise` `{ trackIndex:int, clipIndex:int }` → `get_audio_denoise`
+- `shotcut_remove_audio_denoise` `{ trackIndex:int, clipIndex:int }` → `remove_audio_denoise`
+
+Copy the `formatResult` helper + `registerAudioTools(server, client)` signature verbatim from `animations.ts`. Register in `index.ts`: `import { registerAudioTools } from "./tools/audio.js";` then `registerAudioTools(server, client);` after `registerCaptionTools(...)`.
+
+**UI (thin, optional but preferred for parity):** A minimal `AudioDock` mirroring `AnimationsDock` — a strength `QSpinBox` (0–100%) + "Reduce Noise on Selected Clip" button calling `MAIN.editorService()->applyAudioDenoise(track, clip, pct/100.0)` on `MAIN.timelineDock()->selection().first()`. Register in `mainwindow.cpp` (~line 890 block), member + forward-decl in `mainwindow.h`, add sources to `src/CMakeLists.txt` (docks block ~line 119). If timeboxed, the CapCut-parity story can lean on MCP + the existing Filters dock (which already lists the RNNoise link), and this dock can be skipped — document the choice.
+
+**Steps:**
+- [ ] **Step 1:** Add the 3 methods to `editorservice.h` + implement in `.cpp` with the Link/Chain helper. Include `<MltChain.h>`, `<MltLink.h>`.
+- [ ] **Step 2:** Add 3 RPC branches to `controlserver.cpp`.
+- [ ] **Step 3:** Create `mcp-shotcut/src/tools/audio.ts`; register in `index.ts`.
+- [ ] **Step 4:** (Optional) Add `AudioDock`; wire into `mainwindow` + `CMakeLists`.
+- [ ] **Step 5:** Build + install + `./run.sh`.
+- [ ] **Step 6:** Verify: MCP `apply_audio_denoise` on an audio clip → `get_audio_denoise` returns `{present:true, amount:1.0}` → link visible in Filters dock as "Reduce Noise: Audio (RNNoise)" → survives save/reload → audible/export. Verify `remove_audio_denoise` clears it.
+- [ ] **Step 7:** Trajectory → `docs/agent-trajectories/05-audio-denoise.md` + trimmed recording under `docs/recordings/`.
+
+---
+
+### Task 2.6: Speed Curve Presets (P1 — now in scope)
+
+**Brief mapping:** Feature #2 (Speed curve / speed ramp). Ship **preset ramps** (Montage, Hero, Bullet, Jump Cut, Flash In, Flash Out) + a **constant-speed** and a **custom keyframe** path, all driving the existing `timeremap` link's `speed_map` animation. We do NOT build a new time-remap engine — we script the one MLT already ships.
+
+**CapCut "done":** Apply a non-linear velocity curve to a clip via presets; speed varies over the clip; visible/audible on export; inspectable + removable.
+
+> **CRITICAL — `timeremap` is also an MLT Link** (`src/qml/filters/speed/meta_forward.qml`, `src/qml/filters/time_remap/meta.qml`, both `type: Metadata.Link`, `mlt_service: "timeremap"`). Attach via the **Chain** path (same helper as Task 2.5), NOT `producer->attach()`. The Shotcut "Speed: Forward Only" preset sets `kShotcutFilterProperty = "speedForward"` on the link (see `freezeFrame` at `src/docks/timelinedock.cpp:3688`).
+
+**`speed_map` facts (confirmed in `SpeedUI.qml`):**
+- Animated property `speed_map` on the `timeremap` link. Value = speed multiplier at a given clip-relative frame (`1.0` = normal, `2.0` = 2× fast, `0.5` = slow-mo). Range in UI is `0`–`10`.
+- Companion props: `image_mode` (`"nearest"` default, or `"blend"`), `pitch` (`0`/`1` — audio pitch compensation).
+- Default init writes two keyframes: `speed_map=1.0` at frame `0` and at `duration-1`.
+- Keyframes are set with `link.anim_set("speed_map", value, frame, 0, type)` where `type` is an `mlt_keyframe_type`. Use `mlt_keyframe_smooth` for curvy ramps, `mlt_keyframe_linear` for straight ramps, `mlt_keyframe_discrete` for hard jump cuts.
+
+> **KNOWN BEHAVIOR / RISK — read before implementing.** `timeremap` maps **output** frames to **source** frames via `speed_map`; the clip's output length on the timeline is whatever its in/out already is. A speed curve therefore changes *which source frames play when* within a fixed-length segment (this matches CapCut's "curve inside the segment" model and is the intended MVP). Do **not** try to also resize the clip for v1. If the tester expects the segment to grow/shrink with speed (CapCut "classic speed" mode), document that as a follow-up. Verify actual export behavior on this MLT build in Step 6 and record the honest result in the writeup.
+
+**Files:**
+- Create: `src/services/speedpresets.h` / `.cpp` (mirror `animationpresets.*`)
+- Modify: `src/CMakeLists.txt` (add `services/speedpresets.cpp services/speedpresets.h` in the services block ~line 117)
+- Modify: `src/services/editorservice.h` / `.cpp`
+- Modify: `src/services/controlserver.cpp`
+- Create: `mcp-shotcut/src/tools/speed.ts`; modify `mcp-shotcut/src/index.ts`, `mcp-shotcut/README.md`
+- (Optional thin UI) Create: `src/docks/speeddock.cpp` / `.h`; wire into `mainwindow` + `CMakeLists`
+- Leverage: `src/qml/filters/speed/*`, `MLT.getLink()`, chain helper from Task 2.5
+
+**Preset model (`speedpresets.h` — mirror `animationpresets.h`):**
+
+```cpp
+struct SpeedKeyframe { double position; double speed; };   // position: 0.0..1.0 of clip duration
+struct SpeedPreset {
+    QString id;
+    QString name;
+    QString interpolation;             // "smooth" | "linear" | "discrete"
+    QVector<SpeedKeyframe> keyframes;  // normalized; scaled to clip frames at apply time
+};
+class SpeedPresets {
+public:
+    static const QVector<SpeedPreset> &all();
+    static const SpeedPreset *find(const QString &presetId);
+    static QJsonObject toJson(const SpeedPreset &preset);
+};
+```
+
+**Suggested preset curves (normalized position → speed multiplier; tune during testing):**
+| id | name | interpolation | keyframes (pos:speed) |
+|----|------|---------------|-----------------------|
+| `constant` | Constant | linear | handled by `applyConstantSpeed` (not in preset list) |
+| `montage` | Montage | smooth | 0:1.0, 0.5:2.0, 1:1.0 |
+| `hero` | Hero | smooth | 0:2.0, 0.4:0.4, 0.6:0.4, 1:2.0 |
+| `bullet` | Bullet | smooth | 0:1.0, 0.45:0.2, 0.5:0.2, 0.55:0.2, 1:1.0 |
+| `jump_cut` | Jump Cut | discrete | 0:1.0, 0.5:4.0, 1:1.0 |
+| `flash_in` | Flash In | smooth | 0:4.0, 0.25:1.0, 1:1.0 |
+| `flash_out` | Flash Out | smooth | 0:1.0, 0.75:1.0, 1:4.0 |
+
+**EditorService API (add to `editorservice.h`):**
+
+```cpp
+Q_INVOKABLE EditorResult listSpeedPresets();
+Q_INVOKABLE EditorResult applySpeedPreset(int trackIndex, int clipIndex, const QString &presetId,
+                                          bool pitchCompensation = false);
+Q_INVOKABLE EditorResult applyConstantSpeed(int trackIndex, int clipIndex, double speed,
+                                            bool pitchCompensation = false);
+Q_INVOKABLE EditorResult setSpeedKeyframes(int trackIndex, int clipIndex,
+                                           const QJsonArray &keyframes,   // [{position|frame, speed, interpolation?}]
+                                           bool pitchCompensation = false);
+Q_INVOKABLE EditorResult getSpeedCurve(int trackIndex, int clipIndex);   // {present, image_mode, pitch, keyframes:[{frame,speed}]}
+Q_INVOKABLE EditorResult removeSpeed(int trackIndex, int clipIndex);
+```
+
+**Implementation notes:**
+
+Shared helper `ensureTimeremapLink(Mlt::Producer &producer)`:
+1. Guard `producer.type() == mlt_service_chain_type`.
+2. `QScopedPointer<Mlt::Link> existing(MLT.getLink("speedForward", &producer));` (also try `"timeremap"`). If found, return it (transfer ownership carefully — either return a raw `Mlt::Link*` the caller deletes, or operate inline).
+3. Else `Mlt::Link link("timeremap"); link.set_profile(MLT.profile()); link.set(kShotcutFilterProperty, "speedForward"); link.set("image_mode","nearest"); link.set("pitch", 0);` then `chain.attach(link); chain.move_link(chain.link_count()-1, normalizerLinkCount(chain));` and re-fetch via `MLT.getLink`.
+
+Writing the curve (used by preset / constant / custom):
+1. Determine clip duration in frames: `model->data(clipModelIndex, MultitrackModel::DurationRole).toInt()`.
+2. Clear existing animation: iterate `link->get_animation("speed_map")` and remove all keys, or `link->clear("speed_map")` then re-seed.
+3. For each spec keyframe: `frame = round(position * (duration - 1))` (clamp `[0, duration-1]`), `link->anim_set("speed_map", speed, frame, 0, interpolationFromString(interp));` (reuse the existing `interpolationFromString` helper in `editorservice.cpp:193`).
+4. Always ensure endpoints exist at frame `0` and `duration-1` so the curve is well-defined.
+5. Set `link->set("pitch", pitchCompensation ? 1 : 0);`.
+6. `MLT.refreshConsumer();`.
+
+- `applyConstantSpeed`: one flat value → two keyframes (`0` and `duration-1`) both = `speed`, linear. Clamp speed to `(0, 10]`.
+- `applySpeedPreset`: look up `SpeedPresets::find`, scale normalized keyframes to frames, use the preset's interpolation.
+- `setSpeedKeyframes`: accept explicit `{position(0..1) | frame, speed, interpolation?}` array for the "custom keyframe-editable curve" requirement.
+- `getSpeedCurve`: read back `image_mode`, `pitch`, and each `speed_map` key (`animation.key_get_frame(i)` + `link->get_double("speed_map", frame)`); return `present:false` if no link.
+- `removeSpeed`: find link index in chain, `chain.detach(*link)`, refresh.
+
+**Gotchas:**
+- Same Link/Chain rules as Task 2.5 — include `<MltChain.h>`, `<MltLink.h>`; never use the filter attach path.
+- `speed_map` is on the **link**, so use `link->anim_set(...)` / `link->get_animation(...)` directly (do NOT wrap in `QmlFilter`, which targets `Mlt::Filter`).
+- Reject transitions and blanks.
+- Keep clip length fixed for v1 (see risk box).
+- Only one `timeremap` allowed per clip (`allowMultiple: false`) — reuse the existing link rather than stacking.
+
+**ControlServer dispatch (add branches, same pattern as Task 2.5):** `list_speed_presets`, `apply_speed_preset`, `apply_constant_speed`, `set_speed_keyframes`, `get_speed_curve`, `remove_speed`. For `set_speed_keyframes`, read the array: `params.value("keyframes").toArray()`.
+
+**MCP tools (`mcp-shotcut/src/tools/speed.ts` — mirror `animations.ts`):**
+- `shotcut_list_speed_presets` `{}`
+- `shotcut_apply_speed_preset` `{ trackIndex, clipIndex, presetId, pitchCompensation?:boolean }`
+- `shotcut_apply_constant_speed` `{ trackIndex, clipIndex, speed:number, pitchCompensation?:boolean }`
+- `shotcut_set_speed_keyframes` `{ trackIndex, clipIndex, keyframes: {position?:number, frame?:number, speed:number, interpolation?:string}[], pitchCompensation?:boolean }`
+- `shotcut_get_speed_curve` `{ trackIndex, clipIndex }`
+- `shotcut_remove_speed` `{ trackIndex, clipIndex }`
+
+Register `registerSpeedTools(server, client)` in `index.ts`. For the keyframes array use `z.array(z.object({ position: z.number().optional(), frame: z.number().int().optional(), speed: z.number(), interpolation: z.string().optional() }))`.
+
+**UI (thin, optional):** `SpeedDock` mirroring `AnimationsDock`: preset `QListWidget` (from `SpeedPresets::all()`), a constant-speed `QDoubleSpinBox`, a "pitch compensation" `QCheckBox`, and an Apply button → `MAIN.editorService()->applySpeedPreset(...)` / `applyConstantSpeed(...)` on the selected clip. Same registration steps as Task 2.5's dock. If timeboxed, rely on MCP + the existing Speed/Time Remap filter UI (Filters dock) and document.
+
+**Steps:**
+- [ ] **Step 1:** Create `speedpresets.h/.cpp`; add to `src/CMakeLists.txt`.
+- [ ] **Step 2:** Add EditorService methods + shared `ensureTimeremapLink` + curve writer. Include `<MltChain.h>`, `<MltLink.h>`.
+- [ ] **Step 3:** Add RPC branches in `controlserver.cpp`.
+- [ ] **Step 4:** Create `mcp-shotcut/src/tools/speed.ts`; register in `index.ts`.
+- [ ] **Step 5:** (Optional) Add `SpeedDock`; wire into `mainwindow` + `CMakeLists`.
+- [ ] **Step 6:** Build + install + `./run.sh`. Verify: `apply_speed_preset montage` on a clip → `get_speed_curve` returns scaled `speed_map` keyframes → Filters dock shows the Speed/Time Remap link → preview shows ramp → survives save/reload → **export**; confirm whether output length is fixed (expected) and record it. Test `apply_constant_speed 2.0`, `set_speed_keyframes` custom, and `remove_speed`.
+- [ ] **Step 7:** Trajectory → `docs/agent-trajectories/06-speed-curve.md` + trimmed recording.
+
+---
+
 ## Phase 3 — Agent evidence + writeup
 
 ### Task 3.1: Cursor agent test protocol
@@ -534,6 +773,17 @@ Must open in a browser with no build step. Include:
 | `shotcut_set_caption_text` | 2.3 |
 | `shotcut_import_captions` | 2.3 |
 | `shotcut_get_job_status` | 2.3 (if async) |
+| `shotcut_list_animation_presets` | 2.4 |
+| `shotcut_apply_clip_animation` | 2.4 |
+| `shotcut_apply_audio_denoise` | 2.5 |
+| `shotcut_get_audio_denoise` | 2.5 |
+| `shotcut_remove_audio_denoise` | 2.5 |
+| `shotcut_list_speed_presets` | 2.6 |
+| `shotcut_apply_speed_preset` | 2.6 |
+| `shotcut_apply_constant_speed` | 2.6 |
+| `shotcut_set_speed_keyframes` | 2.6 |
+| `shotcut_get_speed_curve` | 2.6 |
+| `shotcut_remove_speed` | 2.6 |
 
 Keep tools **one meaningful editor action each**, typed args, useful returns (`ok`, `error`, `data`).
 
@@ -582,6 +832,8 @@ Logs: `~/Library/Application Support/Meltytech/Shotcut/shotcut-log.txt`
 - [x] **Phase 2.2** — Keyframes (API → UI → MCP → evidence)
 - [x] **Phase 2.3** — Captions (API → UI → MCP → evidence)
 - [x] **Phase 2.4** — Clip animation presets (stretch)
+- [ ] **Phase 2.5** — Audio denoise / RNNoise (API → MCP → optional UI → evidence)
+- [ ] **Phase 2.6** — Speed curve presets / Time Remap (API → MCP → optional UI → evidence)
 - [ ] **Phase 3** — Writeup + submission polish
 
 ---
@@ -589,8 +841,8 @@ Logs: `~/Library/Application Support/Meltytech/Shotcut/shotcut-log.txt`
 ## Out of scope / explicit skips (document in writeup)
 
 - Full CapCut pixel-perfect panels
-- Non-linear speed-curve engine (P1 skip unless stretch after P0)
-- ML stem separation (vocals/instruments)
+- Custom time-remap **engine** (we script MLT's existing `timeremap` link via presets — Task 2.6 — rather than build a new one; segment length stays fixed for v1)
+- ML **stem separation** (vocals/instruments) — needs an external model (Demucs/Spleeter); denoise IS shipped (Task 2.5), separation is not
 - Computer-use as the primary agent path (MCP is primary; UI parity enables computer-use equivalence)
 - Refactoring all of MainWindow onto EditorService (migrate call sites incrementally for shipped features only)
 

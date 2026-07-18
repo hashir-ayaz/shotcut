@@ -1063,9 +1063,13 @@ EditorResult EditorService::importCaptionsFile(const QString &srtPath,
         name = QStringLiteral("Imported Captions");
 
     subtitlesDock->importSrtFromFile(srtPath, name, QStringLiteral("eng"), false);
+    // Shotcut keeps subtitle tracks separate from the player; CapCut-style preview
+    // needs the Subtitle Burn In filter on timeline output.
+    subtitlesDock->burnInOnTimeline();
 
     QJsonObject data;
     data.insert(QStringLiteral("path"), srtPath);
     data.insert(QStringLiteral("trackName"), name);
+    data.insert(QStringLiteral("burnInApplied"), true);
     return EditorResult::success(data);
 }

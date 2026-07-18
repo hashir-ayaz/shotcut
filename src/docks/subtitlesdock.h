@@ -43,6 +43,7 @@ public:
                            const QString &trackName,
                            const QString &lang,
                            bool includeNonspoken);
+    void burnInOnTimeline();
 
 signals:
     void seekRequested(int pos);
@@ -84,7 +85,6 @@ private:
     QString availableTrackName();
     bool trackNameExists(const QString &name);
     void ensureTrackExists();
-    void burnInOnTimeline();
     void generateTextOnTimeline();
     void speechToText();
     void textToSpeech();
