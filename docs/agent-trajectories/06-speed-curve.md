@@ -42,3 +42,21 @@ Hero preset applies a ramped speed curve visible in preview and `get_speed_curve
 ## Recording
 
 Screen capture of preset apply + MCP `get_speed_curve` readback: `docs/recordings/06-speed-curve.mp4` (add locally).
+
+## Live demo session — 2026-07-18 (MCP)
+
+**Hero** speed ramp on the last clip of the transitions timeline (clip index 4, `bbb-60s.mp4`, timeline frames 602–902). Chosen as the last clip so the duration change can't shift any other real clip's index.
+
+1. `shotcut_get_state` → confirm clip 4 is the trailing `bbb-60s.mp4` (start 602).
+2. `shotcut_list_speed_presets` → 6 presets; `hero` = `2 → 0.4 (hold) → 2`, smooth.
+3. `shotcut_apply_speed_preset` `{ trackIndex:0, clipIndex:4, presetId:"hero" }` → ok, `pitchCompensation:false`, `duration:301`.
+4. `shotcut_get_speed_curve` `{ trackIndex:0, clipIndex:4 }` → `present:true`, `pitch:0`:
+
+| Clip-local frame | Timeline frame | Speed |
+|---|---|---|
+| 0 | 602 | 2.0× |
+| 120 | 722 | 0.4× |
+| 180 | 782 | 0.4× |
+| 300 | 902 | 2.0× |
+
+**Confirmed:** fast-in → 0.4× slow-mo hold (clip-local 120–180 / timeline ~722–782) → fast-out. Pitch compensation off (default). Consistent with the v1 note above: the segment's timeline length stays fixed (301f) while source frames are remapped.
